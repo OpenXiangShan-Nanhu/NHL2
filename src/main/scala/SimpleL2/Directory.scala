@@ -171,6 +171,9 @@ class DirRead(implicit p: Parameters) extends L2Bundle {
     val mshrId   = UInt(mshrBits.W) // mshr ID for replacement task response to find the destination mshr
 
     val updateReplacer = Bool() // Indicates that whether the directory read request should update the replacer.
+
+    val isLowPowerReqOpt = if (hasLowPowerInterface) Some(Bool()) else None // Mark this request is a low power request
+    val wayOHOpt         = if (hasLowPowerInterface) Some(UInt(ways.W)) else None
 }
 
 class DirWrite(implicit p: Parameters) extends L2Bundle {
@@ -203,6 +206,8 @@ class Directory()(implicit p: Parameters) extends L2Module {
         val replResp_s3 = ValidIO(new DirReplResp)
         val mshrStatus  = Vec(nrMSHR, Input(new MshrStatus))
         val resetFinish = Output(Bool()) // reset finish is ASSERTED when all meta entries are reset
+
+        val sramRetentionOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
     // TODO: ECC
@@ -219,7 +224,8 @@ class Directory()(implicit p: Parameters) extends L2Module {
                 set = sets,
                 way = group,
                 singlePort = true,
-                setup = 1
+                setup = 1,
+                powerCtl = hasLowPowerInterface
             )
         )
     }
@@ -237,7 +243,8 @@ class Directory()(implicit p: Parameters) extends L2Module {
                         set = sets,
                         way = 1,
                         singlePort = true,
-                        setup = 1
+                        setup = 1,
+                        powerCtl = hasLowPowerInterface
                     )
                 )
             )
@@ -254,6 +261,11 @@ class Directory()(implicit p: Parameters) extends L2Module {
     metaSRAMs.zipWithIndex.foreach { case (sram, i) =>
         sram.io.r.req.valid       := io.dirRead_s1.fire
         sram.io.r.req.bits.setIdx := io.dirRead_s1.bits.set
+
+        if (hasLowPowerInterface) {
+            sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+            sram.io.pwctl.get.stop := false.B
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -271,6 +283,10 @@ class Directory()(implicit p: Parameters) extends L2Module {
         Mux(mshr.valid && mshr.set === reqSet_s2 && (mshr.dirHit || mshr.lockWay), mshr.wayOH, 0.U(ways.W))
     }).reduceTree(_ | _).asUInt // opt for timing, move from Stage 3 to Stage 2, cut the timing path between MSHR, Directory, MainPipe(Stage 3)
     val randomChosenWayOH_s2 = RandomPriorityEncoderOH(~occWayMask_s2, reqValid_s2 || replReqValid_s2) /* Select a random way, as a way to prevent deadlock */
+
+    // Low power related signals
+    val isLowPowerReqOpt_s2 = if (hasLowPowerInterface) Some(RegEnable(io.dirRead_s1.bits.isLowPowerReqOpt.get, fire_s1)) else None
+    val wayOHOpt_s2         = if (hasLowPowerInterface) Some(RegEnable(io.dirRead_s1.bits.wayOHOpt.get, fire_s1)) else None
 
     metaRead_s2 := VecInit(metaSRAMs.map(_.io.r.resp.data)).asTypeOf(Vec(ways, new DirectoryMetaEntry()))
 
@@ -309,20 +325,24 @@ class Directory()(implicit p: Parameters) extends L2Module {
         _replacerState_s3
     }
 
+    // Low power related signals
+    val isLowPowerReqOpt_s3 = if (hasLowPowerInterface) Some(RegEnable(isLowPowerReqOpt_s2.get, reqValid_s2)) else None
+    val wayOHOpt_s3         = if (hasLowPowerInterface) Some(RegEnable(wayOHOpt_s2.get, reqValid_s2)) else None
+
     val victimWay_s3         = repl.get_replace_way(replacerState_s3)
     val victimWayOH_s3       = UIntToOH(victimWay_s3)
     val chosenWayOH_s3       = Mux(hasInv_s3, invWayOH_s3, victimWayOH_s3)
     val randomChosenWayOH_s3 = RegEnable(randomChosenWayOH_s2, reqValid_s2 || replReqValid_s2)
     val isFreeWay_s3         = (freeWayMask_s3 & chosenWayOH_s3).orR
     val finalWayOH_s3        = Mux(isFreeWay_s3, chosenWayOH_s3, randomChosenWayOH_s3)
-    val respWayOH_s3         = Mux(hit_s3, hitOH_s3, finalWayOH_s3)
+    val respWayOH_s3         = Mux(isLowPowerReqOpt_s3.getOrElse(false.B), wayOHOpt_s3.getOrElse(0.U), Mux(hit_s3, hitOH_s3, finalWayOH_s3))
     val way_s3               = OHToUInt(Mux(replReqValid_s3, finalWayOH_s3, respWayOH_s3)) // This is used by replacerSRAM
 
     assert(!(io.resetFinish && reqValid_s3 && PopCount(hitOH_s3) > 1.U))
     assert(!(io.resetFinish && reqValid_s3 && PopCount(finalWayOH_s3) > 1.U))
 
     io.dirResp_s3.valid          := reqValid_s3
-    io.dirResp_s3.bits.hit       := hit_s3
+    io.dirResp_s3.bits.hit       := Mux(isLowPowerReqOpt_s3.getOrElse(false.B), !Mux1H(respWayOH_s3, metaRead_s3).isInvalid, hit_s3)
     io.dirResp_s3.bits.meta      := Mux1H(respWayOH_s3, metaRead_s3)
     io.dirResp_s3.bits.wayOH     := respWayOH_s3
     io.dirResp_s3.bits.needsRepl := noFreeWay_s3
@@ -371,6 +391,12 @@ class Directory()(implicit p: Parameters) extends L2Module {
             setIdx = Mux(io.resetFinish, reqSet_s3, resetIdx - 1.U),
             waymask = 1.U
         )
+
+        if (hasLowPowerInterface) {
+            sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+            sram.io.pwctl.get.stop := false.B
+        }
+
         assert(!(io.resetFinish && sram.io.r.req.valid && !sram.io.r.req.ready), "replacerSRAM is not ready for read!")
         assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "replacerSRAM is not ready for write!")
     }

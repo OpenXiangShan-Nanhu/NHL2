@@ -29,7 +29,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val taskSnoop_s1 = Flipped(Decoupled(new TaskBundle))
 
         /** Other request */
-        val taskCMO_s1 = Flipped(Decoupled(new TaskBundle))
+        val taskCMO_s1         = Flipped(Decoupled(new TaskBundle))
+        val lowPowerTaskOpt_s1 = if (hasLowPowerInterface) Some(Flipped(Decoupled(new LowPowerToReqArb))) else None
 
         /** Read directory */
         val dirRead_s1 = Decoupled(new DirRead)
@@ -64,6 +65,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val mpStatus_s4567     = Input(new MpStatus4567)
         val bufferStatus       = Input(new BufferStatusSourceD) // from SourceD
         val resetFinish        = Input(Bool())
+
+        val lowPowerStateOpt = if (hasLowPowerInterface) Some(Input(UInt(PowerState.width.W))) else None
     })
 
     io <> DontCare
@@ -309,11 +312,24 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     arbTaskSinkA.valid    := io.taskSinkA_s1.valid && !blockA_s1 && Mux(optParam.sinkaStallOnReqArb.B, !noSpaceForReplay_a_s1, true.B)
     io.taskSinkA_s1.ready := arbTaskSinkA.ready && !blockA_s1 && Mux(optParam.sinkaStallOnReqArb.B, !noSpaceForReplay_a_s1, true.B)
 
+    /** Deal with low power requests */
+    val isLowPowerTask_s1 = if (hasLowPowerInterface) io.lowPowerTaskOpt_s1.get.fire else false.B
+    val lowPowerTask_s1   = WireInit(0.U.asTypeOf(new TaskBundle))
+    if (hasLowPowerInterface) {
+        io.lowPowerTaskOpt_s1.get.ready := io.resetFinish && !mshrTaskFull_s1 && io.dirRead_s1.ready
+
+        lowPowerTask_s1.set                   := io.lowPowerTaskOpt_s1.get.bits.set
+        lowPowerTask_s1.wayOH                 := UIntToOH(io.lowPowerTaskOpt_s1.get.bits.wayIdx)
+        lowPowerTask_s1.isLowPowerTaskOpt.get := true.B
+
+        assert(!(io.lowPowerStateOpt.get === PowerState.SHUTDOWN && chnlTask_s1.valid), "When powerState is SHUTDOWN, L2Cache cannot accept any channel request")
+    }
+
     chnlTask_s1.ready := io.resetFinish && !mshrTaskFull_s1 && Mux(!chnlTask_s1.bits.snpHitReq, io.dirRead_s1.ready, true.B)
     task_s1 := Mux(
         mshrTaskFull_s1,
         mshrTask_s1,
-        chnlTask_s1.bits
+        Mux(isLowPowerTask_s1, lowPowerTask_s1, chnlTask_s1.bits)
     )
     dontTouch(task_s1)
 
@@ -334,14 +350,16 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     io.toSinkC.mayReadDS_s1    := mshrTaskFull_s1 && mayReadDS_mshr_s1
     io.toSinkC.willRefillDS_s1 := mshrTaskFull_s1 && tempDsToDs_s1 && mshrTask_s1.readTempDs && !mshrTask_s1.isReplTask
     valid_s1                   := chnlTask_s1.valid || mshrTaskFull_s1
-    fire_s1                    := mshrTaskFull_s1 && mshrTaskReady_s1 || chnlTask_s1.fire
+    fire_s1                    := mshrTaskFull_s1 && mshrTaskReady_s1 || chnlTask_s1.fire || { if (hasLowPowerInterface) io.lowPowerTaskOpt_s1.get.fire else false.B }
 
-    io.dirRead_s1.valid               := fire_s1 && (!task_s1.isMshrTask || task_s1.isMshrTask && task_s1.isReplTask) && !task_s1.snpHitReq
-    io.dirRead_s1.bits.set            := task_s1.set
+    io.dirRead_s1.valid               := fire_s1 && (!task_s1.isMshrTask || isLowPowerTask_s1 || task_s1.isMshrTask && task_s1.isReplTask) && !task_s1.snpHitReq
+    io.dirRead_s1.bits.set            := Mux(isLowPowerTask_s1, lowPowerTask_s1.set, task_s1.set)
     io.dirRead_s1.bits.tag            := task_s1.tag
     io.dirRead_s1.bits.mshrId         := task_s1.mshrId
     io.dirRead_s1.bits.replTask       := task_s1.isMshrTask && task_s1.isReplTask
     io.dirRead_s1.bits.updateReplacer := task_s1.isChannelA && (task_s1.opcode === AcquireBlock || task_s1.opcode === AcquirePerm)
+    io.dirRead_s1.bits.isLowPowerReqOpt.foreach(_ := isLowPowerTask_s1)
+    io.dirRead_s1.bits.wayOHOpt.foreach(_ := task_s1.wayOH)
 
     io.tempDsRead_s1.valid     := mshrTaskFull_s1 && mshrTaskReady_s1 && mshrTask_s1.readTempDs || arbTaskSnoop.bits.snpHitReq && arbTaskSnoop.bits.readTempDs && io.taskSnoop_s1.fire
     io.tempDsRead_s1.bits.idx  := Mux(arbTaskSnoop.bits.snpHitReq && !mshrTaskFull_s1, arbTaskSnoop.bits.snpHitMshrId, mshrTask_s1.mshrId)

@@ -15,6 +15,7 @@ import xs.utils.perf.{DebugOptionsKey, DebugOptions}
 import xs.utils.tl.{TLNanhuBusField, TLNanhuBusKey, TLUserKey, TLUserParams}
 import xs.utils.FastArbiter
 import SimpleL2.Configs._
+import SimpleL2.Bundles._
 import SimpleL2.chi._
 import Utils.GenerateVerilog
 
@@ -149,6 +150,8 @@ class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends 
                     val recv_addrs = Vec(nrClients, Flipped((new SimpleL2.prefetch.PrefetchIO)(l2ToTlbParams).recv_addr.cloneType))
                 })
                 else None
+
+            val lowPowerOpt = if (hasLowPowerInterface) Some(new LowPowerIO) else None
         })
 
         // Each client has its own prefetcher since L2 allows connection to multiple clients
@@ -211,6 +214,8 @@ class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends 
             slice.io         <> DontCare
             slice.io.tl      <> bundleIn
             slice.io.sliceId := i.U(bankBits.W)
+
+            slice.io.lowPowerOpt.foreach(_ := io.lowPowerOpt.get)
         }
 
         if (enablePrefetch) {

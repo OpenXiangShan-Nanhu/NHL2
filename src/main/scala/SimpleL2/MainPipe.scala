@@ -295,7 +295,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3) && canAllocMshr_s3
     val mshrAlloc_b_s3  = ((needProbe_b_s3 || needDCT_s3) && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
     val mshrAlloc_c_s3  = false.B                                                                                               // for inclusive cache, Release/ReleaseData always hit
-    val mshrAlloc_s3    = mshrAlloc_a_s3 || mshrAlloc_b_s3 || mshrAlloc_c_s3 || mshrRealloc_s3
+    val mshrAlloc_lp_s3 = task_s3.isLowPowerTaskOpt.getOrElse(false.B) && dirResp_s3.hit
+    val mshrAlloc_s3    = mshrAlloc_a_s3 || mshrAlloc_b_s3 || mshrAlloc_c_s3 || mshrRealloc_s3 || mshrAlloc_lp_s3
 
     val mshrAllocStates = WireInit(0.U.asTypeOf(new MshrFsmState))
     mshrAllocStates.elements.foreach(_._2 := true.B)
@@ -375,6 +376,24 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         // TODO: Release should always hit
     }
 
+    when(task_s3.isLowPowerTaskOpt.getOrElse(false.B)) {
+        when(dirResp_s3.meta.isDirty) {
+            mshrAllocStates.s_wb            := false.B
+            mshrAllocStates.w_compdbid      := false.B
+            mshrAllocStates.s_cbwrdata      := false.B
+            mshrAllocStates.w_cbwrdata_sent := false.B
+        }.otherwise {
+            mshrAllocStates.s_evict      := false.B
+            mshrAllocStates.w_evict_comp := false.B
+        }
+
+        when(dirResp_s3.meta.clientsOH.orR) {
+            mshrAllocStates.s_rprobe          := false.B
+            mshrAllocStates.w_rprobeack       := false.B
+            mshrAllocStates.w_rprobeack_first := false.B
+        }
+    }
+
     val mshrReallocStates_s3 = WireInit(0.U.asTypeOf(new MshrFsmState))
     mshrReallocStates_s3.elements.foreach(_._2 := true.B)
     when(task_s3.isChannelB) {
@@ -397,6 +416,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.mshrAlloc_s3.bits.req.isAliasTask := cacheAlias_s3
     io.mshrAlloc_s3.bits.realloc         := mshrRealloc_s3
     io.mshrAlloc_s3.bits.snpGotDirty     := task_s3.snpGotDirty
+    assert(!(task_s3.isLowPowerTaskOpt.getOrElse(false.B) && io.mshrAlloc_s3.valid && !io.mshrAlloc_s3.ready), "low power task should always valid to alloc mshr!")
 
     val snpReplay_dup_s3 = WireInit(false.B)
     io.mshrNested_s3                  <> DontCare
@@ -542,17 +562,18 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         clientsOH = Mux(task_s3.param === TtoN || task_s3.param === BtoN, meta_s3.clientsOH & ~reqClientOH_s3, meta_s3.clientsOH /* Release.TtoB */ )
     )
 
-    val dirWen_s3 = !mshrAlloc_s3 && (dirWen_mshr_s3 || dirWen_a_s3 || dirWen_b_s3 || dirWen_c_s3) && valid_s3
+    val dirWen_s3 = (!mshrAlloc_s3 && (dirWen_mshr_s3 || dirWen_a_s3 || dirWen_b_s3 || dirWen_c_s3) || mshrAlloc_lp_s3) && valid_s3
     io.dirWrite_s3.valid      := dirWen_s3
     io.dirWrite_s3.bits.set   := task_s3.set
     io.dirWrite_s3.bits.wayOH := Mux(!task_s3.isMshrTask && hit_s3, dirResp_s3.wayOH, task_s3.wayOH)
     io.dirWrite_s3.bits.meta := MuxCase(
         0.U.asTypeOf(new DirectoryMetaEntry),
         Seq(
-            dirWen_mshr_s3 -> newMeta_mshr_s3,
-            dirWen_a_s3    -> newMeta_a_s3,
-            dirWen_b_s3    -> newMeta_b_s3,
-            dirWen_c_s3    -> newMeta_c_s3
+            dirWen_mshr_s3  -> newMeta_mshr_s3,
+            dirWen_a_s3     -> newMeta_a_s3,
+            dirWen_b_s3     -> newMeta_b_s3,
+            dirWen_c_s3     -> newMeta_c_s3,
+            mshrAlloc_lp_s3 -> DirectoryMetaEntry() // LowPower request will clear directory
         )
     )
     assert(
@@ -561,10 +582,11 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         Cat(task_s3.tag, task_s3.set, 0.U(6.W))
     )
 
+    val lowPowerNeedProbe_s3  = mshrAlloc_lp_s3 && dirResp_s3.meta.clientsOH.orR
     val replRespValid_s3      = io.replResp_s3.fire && !io.replResp_s3.bits.retry
-    val replRespNeedProbe_s3  = replRespValid_s3 && io.replResp_s3.bits.meta.clientsOH.orR
-    val replRespTag_s3        = io.replResp_s3.bits.meta.tag
-    val replRespWayOH_s3      = io.replResp_s3.bits.wayOH
+    val replRespNeedProbe_s3  = replRespValid_s3 && io.replResp_s3.bits.meta.clientsOH.orR || lowPowerNeedProbe_s3
+    val replRespTag_s3        = Mux(lowPowerNeedProbe_s3, dirResp_s3.meta.tag, io.replResp_s3.bits.meta.tag)
+    val replRespWayOH_s3      = Mux(lowPowerNeedProbe_s3, task_s3.wayOH, io.replResp_s3.bits.wayOH)
     val allocMshrIdx_s3       = OHToUInt(io.mshrFreeOH_s3)                                                                    // TODO: consider OneHot?
     val needAllocDestSinkC_s3 = (needProbeOnHit_a_s3 || needProbe_b_s3 || needDCT_s3) && mshrAlloc_s3 || replRespNeedProbe_s3 // TODO: Snoop
     val sinkDataToTempDS_s3   = needProbe_b_s3 || (isGet_s3 || isAcquire_s3) && needProbeOnHit_a_s3                           // AcquireBlock need GrantData response, nested ReleaseData will be saved into the TempDataStorage

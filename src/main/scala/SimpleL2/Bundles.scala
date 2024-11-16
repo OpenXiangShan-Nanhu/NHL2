@@ -50,6 +50,8 @@ class TaskBundle(implicit p: Parameters) extends L2Bundle {
     val fwdNID_opt   = if (supportDCT) Some(UInt(chiBundleParams.nodeIdBits.W)) else None // Used for DCT
     val fwdTxnID_opt = if (supportDCT) Some(UInt(chiBundleParams.txnIdBits.W)) else None  // Used for DCT
 
+    val isLowPowerTaskOpt = if (hasLowPowerInterface) Some(Bool()) else None
+
     def resp = param             // alias to opcode, if isCHIOpcode is true
     def txnID = source           // alias to source, if isCHIOpcode is true
     def chiOpcode = opcode       // alias to opcode, if isCHIOpcode is true
@@ -92,4 +94,35 @@ class TLRespBundle(params: TLBundleParameters)(implicit p: Parameters) extends L
     val set    = UInt(setBits.W)
     val tag    = UInt(tagBits.W)
     val last   = Bool()
+}
+
+class LowPowerIO(implicit p: Parameters) extends L2Bundle {
+    val shutdown = new Bundle {
+        val req = Input(Bool())
+        val ack = Output(Bool()) // set to HIGH when the low power operation is done
+    }
+
+    val retention = new Bundle {
+        val req = Input(Bool())
+        val ack = Output(Bool())
+        val rdy = Output(Bool()) // set to HIGH when the L2Cache can enter retention mode
+        //
+        // A: Active(stable), T: Transition, R: Retention(stable)
+        //
+        // mode:    <--------T----->|<------R------>|<--T-->|<----------A---------->|<--T-->|<------R------>
+        // clk:  ___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___
+        // req:  ___/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+        // ack:  ___________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+        // rdy:  ⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+        //                                   ↑                              ↑
+        //                                   |                              |
+        //     Snoop from next level cache. _/                               \_ Snoop has been processed.
+        //     The L2Cache must exit retention mode.                            Now the L2Cache allows to enter retention mode.
+        //
+    }
+}
+
+class LowPowerToReqArb(implicit p: Parameters) extends L2Bundle {
+    val set    = UInt(setBits.W)
+    val wayIdx = UInt(wayBits.W)
 }

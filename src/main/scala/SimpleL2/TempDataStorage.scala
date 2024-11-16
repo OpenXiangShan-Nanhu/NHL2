@@ -85,6 +85,8 @@ class TempDataStorage()(implicit p: Parameters) extends L2Module {
          * It is also passed into the top-level of [[Slice]] and connect to the L2 top-level interrupt signal after one cycle delay.
          */
         val eccError = Output(Bool())
+
+        val sramRetentionOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
     io <> DontCare
@@ -98,7 +100,8 @@ class TempDataStorage()(implicit p: Parameters) extends L2Module {
                 set = nrMSHR,
                 way = 1,
                 singlePort = true,
-                setup = 1
+                setup = 1,
+                powerCtl = hasLowPowerInterface
             )
         )
     }
@@ -182,6 +185,11 @@ class TempDataStorage()(implicit p: Parameters) extends L2Module {
         assert(!(sram.io.r.req.valid && !sram.io.r.req.ready), "tempDataSRAM should always be ready for read")
 
         rdData_ts2(i).data := sram.io.r.resp.data(0).data
+
+        if (hasLowPowerInterface) {
+            sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+            sram.io.pwctl.get.stop := false.B
+        }
     }
 
     if (enableDataECC) {

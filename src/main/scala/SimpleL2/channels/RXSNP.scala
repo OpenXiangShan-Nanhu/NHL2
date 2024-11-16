@@ -13,6 +13,9 @@ class RXSNP()(implicit p: Parameters) extends L2Module {
     val io = IO(new Bundle {
         val rxsnp = Flipped(DecoupledIO(new CHIBundleSNP(chiBundleParams)))
         val task  = DecoupledIO(new TaskBundle)
+
+        val powerStateOpt       = if (hasLowPowerInterface) Some(Input(UInt(PowerState.width.W))) else None
+        val sramWakeupFinishOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
     // Addr in CHI SNP channel has 3 fewer bits than full address
@@ -22,8 +25,9 @@ class RXSNP()(implicit p: Parameters) extends L2Module {
     println(s"[${this.getClass().toString()}] rxsnpHasLatch:${optParam.rxsnpHasLatch}")
 
     if (!optParam.rxsnpHasLatch) {
-        io.rxsnp.ready           := io.task.ready
-        io.task.valid            := io.rxsnp.valid
+        val allowReq = Mux(hasLowPowerInterface.B, io.sramWakeupFinishOpt.getOrElse(true.B) && io.powerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE, true.B)
+        io.rxsnp.ready           := io.task.ready && allowReq
+        io.task.valid            := io.rxsnp.valid && allowReq
         io.task.bits             := DontCare
         io.task.bits.set         := set
         io.task.bits.tag         := tag
@@ -61,7 +65,7 @@ class RXSNP()(implicit p: Parameters) extends L2Module {
         task_sn1.fwdNID_opt.foreach(_ := io.rxsnp.bits.fwdNID)
         task_sn1.fwdTxnID_opt.foreach(_ := io.rxsnp.bits.fwdTxnID)
 
-        io.rxsnp.ready := !full_s0
+        io.rxsnp.ready := !full_s0 && Mux(hasLowPowerInterface.B, io.sramWakeupFinishOpt.getOrElse(true.B) && io.powerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE, true.B)
 
         // -----------------------------------------------------------------------------------------
         // Stage 0
@@ -89,6 +93,12 @@ class RXSNP()(implicit p: Parameters) extends L2Module {
          *  - If the RetToSrc value is 0, must not return a copy if the cache line is Clean
          */
         io.task.bits.retToSrc := task_s0.retToSrc
+    }
+
+    if (hasLowPowerInterface) {
+        when(io.rxsnp.fire) {
+            assert(io.powerStateOpt.get === PowerState.ACTIVE, "RXSNP must be in ACTIVE power state")
+        }
     }
 
     /**

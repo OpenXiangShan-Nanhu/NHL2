@@ -15,6 +15,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         val prefetchReqOpt = if (enablePrefetch) Some(Flipped(DecoupledIO(new SimpleL2.prefetch.PrefetchReq))) else None
         val task           = DecoupledIO(new TaskBundle)
         val sliceId        = Input(UInt(bankBits.W))
+        val lowPowerReqOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
     io      <> DontCare
@@ -82,6 +83,10 @@ class SinkA()(implicit p: Parameters) extends L2Module {
 
         assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
         LeakChecker(io.a.valid, io.a.fire, Some("SinkA_io_a_valid"), maxCount = deadlockThreshold)
+    }
+
+    if (hasLowPowerInterface) {
+        assert(!(io.lowPowerReqOpt.get && io.a.valid), "When lowPowerReq is TRUE, io.a should not be valid!")
     }
 
     dontTouch(io)

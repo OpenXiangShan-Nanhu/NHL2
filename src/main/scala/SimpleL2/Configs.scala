@@ -64,12 +64,16 @@ case class L2Param(
     prefetchParams: Seq[SimpleL2.prefetch.PrefetchParameters] = Nil,
     replacementPolicy: String = "plru", // Option: "random", "plru", "lru"
     dataEccCode: String = "secded",     // Option: "none", "identity", "parity", "sec", "secded"
-    useDiplomacy: Boolean = false       // If use diplomacy, EdgeInKey should be passed in
+    useDiplomacy: Boolean = false,      // If use diplomacy, EdgeInKey should be passed in
+    hasLowPowerInterface: Boolean = false,
+    lowPowerMSHRFreeThreshold: Int = 500,
+    sramRetentionWakeupCycles: Int = 100 // Cycles to wait for SRAM retention wakeup
 ) {
     require(isPow2(ways))
     require(isPow2(sets))
     require(dataBits == 64 * 8)
     require(nrSlice >= 1)
+    require(nrMSHR >= 8)
     require(replacementPolicy == "random" || replacementPolicy == "plru" || replacementPolicy == "lru")
     require(dataEccCode == "none" || dataEccCode == "identity" || dataEccCode == "parity" || dataEccCode == "sec" || dataEccCode == "secded")
 
@@ -117,6 +121,11 @@ trait HasL2Param {
     val rxdatCreditMAX = l2param.rxdatCreditMAX
 
     val replacementPolicy = l2param.replacementPolicy
+
+    // Low power related parameters
+    val hasLowPowerInterface      = l2param.hasLowPowerInterface
+    val lowPowerMSHRFreeThreshold = l2param.lowPowerMSHRFreeThreshold
+    val sramRetentionWakeupCycles = l2param.sramRetentionWakeupCycles
 
     /** 
      * ECC parameters 

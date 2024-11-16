@@ -65,6 +65,8 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
          * It is also passed into the top-level of [[Slice]] and connect to the L2 top-level interrupt signal after one cycle delay.
          */
         val eccError = Output(Bool())
+
+        val sramRetentionOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
     val ready_s7    = WireInit(false.B)
@@ -108,7 +110,8 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
                     set = sets * ways,
                     way = 1,
                     setup = 1,
-                    latency = 2
+                    latency = 2,
+                    powerCtl = hasLowPowerInterface
                 )
             )
         })
@@ -138,7 +141,8 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
                             set = sets,
                             way = 1,
                             setup = 1,
-                            latency = 2
+                            latency = 2,
+                            powerCtl = hasLowPowerInterface
                         )
                     )
                 }
@@ -212,6 +216,11 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
                 sram.io.req.bits.data(0)(i) := dataCode.encode(wrGroupDatas(eccProtectBytes * 8 * (i + 1) - 1, eccProtectBytes * 8 * i))
             }
 
+            if (hasLowPowerInterface) {
+                sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+                sram.io.pwctl.get.stop := false.B
+            }
+
             _assert(!(sram.io.req.valid && !sram.io.req.ready), "dataSRAM request not ready!")
         }
     } else {
@@ -227,6 +236,11 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
                 (0 until (groupBytes / eccProtectBytes)).foreach { i =>
                     val wrGroupDatas = wrData_s3(groupBytes * 8 * (groupIdx + 1) - 1, groupBytes * 8 * groupIdx)
                     sram.io.req.bits.data(0)(i) := dataCode.encode(wrGroupDatas(eccProtectBytes * 8 * (i + 1) - 1, eccProtectBytes * 8 * i))
+                }
+
+                if (hasLowPowerInterface) {
+                    sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+                    sram.io.pwctl.get.stop := false.B
                 }
 
                 _assert(!(sram.io.req.valid && !sram.io.req.ready), "dataSRAM request not ready!")

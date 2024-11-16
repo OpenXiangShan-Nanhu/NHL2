@@ -37,6 +37,8 @@ class Slice()(implicit p: Parameters) extends L2Module {
         val prefetchReqOpt   = if (enablePrefetch) Some(Flipped(DecoupledIO(new SimpleL2.prefetch.PrefetchReq))) else None
         val prefetchTrainOpt = if (enablePrefetch) Some(DecoupledIO(new SimpleL2.prefetch.PrefetchTrain)) else None
         val prefetchRespOpt  = if (enablePrefetch) Some(DecoupledIO(new PrefetchRespWithSource(tlBundleParams.sourceBits))) else None
+
+        val lowPowerOpt = if (hasLowPowerInterface) Some(new LowPowerIO) else None
     })
 
     println(s"[${this.getClass().toString()}] addressBits:$addressBits")
@@ -253,6 +255,39 @@ class Slice()(implicit p: Parameters) extends L2Module {
     io.chi.rxrsp <> rxrsp.io.rxrsp
     io.chi.rxsnp <> rxsnp.io.rxsnp
 
+    if (hasLowPowerInterface) {
+        val lowPowerCtrl = Module(new LowPowerCtrl)
+        val powerState   = lowPowerCtrl.io.powerState
+        lowPowerCtrl.io.lowPower       <> io.lowPowerOpt.get
+        lowPowerCtrl.io.mshrStatus     <> missHandler.io.mshrStatus
+        lowPowerCtrl.io.mpStatus_s123  <> reqArb.io.status
+        lowPowerCtrl.io.mpStatus_s4567 <> mainPipe.io.status
+
+        val retentionWakeupTimer = RegInit((sramRetentionWakeupCycles).U(log2Up(sramRetentionWakeupCycles + 1).W)) // Wait for SRAM retention wakeup
+        when(retentionWakeupTimer < sramRetentionWakeupCycles.U && powerState =/= PowerState.RETENTION) {
+            retentionWakeupTimer := retentionWakeupTimer + 1.U
+            assert(!io.chi.rxsnp.ready)
+            assert(io.chi.rxsnp.valid)
+        }.elsewhen(sramRetentionWakeupCycles.U >= retentionWakeupTimer && powerState === PowerState.RETENTION) {
+            retentionWakeupTimer := 0.U
+        }
+
+        rxsnp.io.sramWakeupFinishOpt.get := retentionWakeupTimer === sramRetentionWakeupCycles.U
+        rxsnp.io.powerStateOpt.get       := powerState
+        lowPowerCtrl.io.rxsnpValid       := io.chi.rxsnp.valid
+        lowPowerCtrl.io.retentionWakeup  := powerState === PowerState.RETENTION && io.chi.rxsnp.valid
+
+        val lowPowerReqValid = io.lowPowerOpt.get.shutdown.req || io.lowPowerOpt.get.retention.req
+        sinkA.io.lowPowerReqOpt.get      := lowPowerReqValid
+        reqArb.io.lowPowerStateOpt.get   := powerState
+        reqArb.io.lowPowerTaskOpt_s1.get <> lowPowerCtrl.io.toReqArb
+
+        // SRAM retention signals
+        ds.io.sramRetentionOpt.get     := powerState === PowerState.RETENTION
+        dir.io.sramRetentionOpt.get    := powerState === PowerState.RETENTION
+        tempDS.io.sramRetentionOpt.get := powerState === PowerState.RETENTION
+    }
+
     dontTouch(io)
 }
 
@@ -299,7 +334,9 @@ object Slice extends App {
                     mshrStallOnReqArb = true,
                     latchTempDsToDs = true
                 ),
-                prefetchParams = Seq(SimpleL2.prefetch.BOPParameters(virtualTrain = true))
+                prefetchParams = Seq(SimpleL2.prefetch.BOPParameters(virtualTrain = true)),
+                hasLowPowerInterface = true,
+                lowPowerMSHRFreeThreshold = 50
             )
         case DebugOptionsKey => DebugOptions(EnablePerfDebug = false)
     })
