@@ -7357,6 +7357,261 @@ local test_seperate_data_resp = env.register_test_case "test_seperate_data_resp"
     end
 }
 
+local test_MakeUnique_and_SnpNotSharedDirty = env.register_test_case "test_MakeUnique_and_SnpNotSharedDirty" { 
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        env.negedge()
+            write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TD)
+            write_dir(0x01, ("0b0010"):number(), 0x02, MixedState.TD)
+            write_dir(0x01, ("0b0100"):number(), 0x03, MixedState.TD)
+            write_dir(0x01, ("0b1000"):number(), 0x04, MixedState.TD)
+        env.negedge()
+            tl_a:acquire_perm(to_address(0x01, 0x01), TLParam.NtoT, 0) -- source = 0
+        
+        env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeUnique) end)
+            chi_rxrsp:comp(0, 1, CHIResp.UC) -- txn_id = 0, db_id = 1
+
+        fork {
+            function ()
+                local txn_id = 0x10 -- extra id for WriteBackFull
+                env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) and chi_txreq.bits.txnID:is(txn_id) end)
+                    chi_rxrsp:comp_dbidresp(txn_id, 1) -- txn_id = 0, db_id = 1
+
+                fork {
+                    function ()
+                        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
+                    end
+                }
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x00) end)
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x02) end)
+            end,
+            function ()
+                env.expect_happen_until(20, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.Grant) and tl_d.bits.param:is(TLParam.toT) end)
+                env.negedge()
+                    tl_e:grantack(0)
+            end
+        }
+        mshrs[0].needRefillData:expect(0)
+        env.posedge(50) -- wait for WriteBackFull send
+        mshrs[0].io_status_valid:expect(0)
+
+        env.negedge()
+            chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpNotSharedDirty, 6, 1, 0x10) -- txn_id = 6, src_id = 0x10
+        env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.opcode:is(TLOpcodeB.Probe) end)
+            tl_c:probeack_data(to_address(0x01, 0x01), TLParam.NtoT, "0xdead", "0xbeef", 0x00)
+        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.data:is_hex_str("0xdead") end)
+        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.data:is_hex_str("0xbeef") end)
+        
+        env.posedge(100)
+    end
+}
+
+local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shutdown_request" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        local function expect_clear_dir()
+            env.expect_happen_until(1000, function () return mp.valid_s3:is(1) and mp_dirResp.hit:is(1) end)
+            mp.io_dirWrite_s3_valid:expect(1)
+            mp.io_dirWrite_s3_bits_meta_state:expect(MixedState.I)
+        end
+
+        local function wait_for_lowPowerShutdown_ack()
+            -- wait for io_lowPowerOpt_shutdown_ack
+            env.expect_happen_until(2000, function () return dut.io_lowPowerOpt_shutdown_ack:is(1) end)
+
+            dut.io_lowPowerOpt_shutdown_req:set(0)
+            env.negedge(2)
+            dut.io_lowPowerOpt_shutdown_ack:expect(0)
+        end
+
+        do
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TD)
+
+            env.negedge()
+                dut.io_lowPowerOpt_shutdown_req:set(1)
+
+            expect_clear_dir()
+
+            env.expect_happen_until(100, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
+                chi_rxrsp:comp_dbidresp(0x10, 1) -- txn_id = 0x10, db_id = 1
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x00) end)
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x02) end)
+            env.negedge(10)
+                mshrs[0].io_status_valid:expect(0)
+
+            wait_for_lowPowerShutdown_ack()
+        end
+
+        local test = function(state)
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TC)
+
+            env.negedge()
+                dut.io_lowPowerOpt_shutdown_req:set(1)
+
+            expect_clear_dir()
+
+            env.expect_happen_until(100, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
+                chi_rxrsp:comp(0x10, 1, CHIResp.I) -- txn_id = 0x10, db_id = 1
+            env.negedge(10)
+                mshrs[0].io_status_valid:expect(0)
+
+            wait_for_lowPowerShutdown_ack()
+        end
+        test(MixedState.TC)
+        test(MixedState.BC)
+
+        local test = function(probeack_dirty)
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TTC, ("0b01"):number())
+
+            env.negedge()
+                dut.io_lowPowerOpt_shutdown_req:set(1)
+
+            expect_clear_dir()
+
+            env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.address:is(to_address(0x01, 0x05)) and tl_b.bits.param:is(TLParam.toN) end)
+            if not probeack_dirty then
+                tl_c:probeack(to_address(0x01, 0x05), TLParam.TtoN, 0)
+            else
+                tl_c:probeack_data(to_address(0x01, 0x05), TLParam.TtoN, "0xabab", "0xefef", 0)
+            end
+
+            if not probeack_dirty then
+                env.expect_happen_until(100, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
+                    chi_rxrsp:comp(0x10, 1, CHIResp.I) -- txn_id = 0x10, db_id = 1
+            else
+                env.expect_happen_until(100, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
+                    chi_rxrsp:comp_dbidresp(0x10, 1) -- txn_id = 0x10, db_id = 1
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x00) and chi_txdat.bits.data:is_hex_str("0xabab") end)
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x02) and chi_txdat.bits.data:is_hex_str("0xefef") end)
+            end
+            env.negedge(10)
+                mshrs[0].io_status_valid:expect(0)
+
+            wait_for_lowPowerShutdown_ack()
+        end
+        test(false)
+        test(true)
+
+        -- block low power request from lowPowerCtrl to reqArb when MSHR nearly full
+        do
+            local total_valid_cachelines = 12
+            env.negedge()
+            for i = 1, total_valid_cachelines do
+                write_dir(i, ("0b0001"):number(), 0x00, MixedState.TC)
+            end
+
+            env.negedge()
+                dut.io_lowPowerOpt_shutdown_req:set(1)
+            
+            fork {
+                function ()
+                    for i = 1, total_valid_cachelines - 3 do -- 3 is the pipeline depth from reqArb to stage3(allocate mshr)
+                        env.negedge()
+                        expect_clear_dir()
+                        print("clear cacheline", i)
+                    end
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return slice.lowPowerCtrl.mshrIsOk:is(1) end)
+                    env.expect_happen_until(500, function () return slice.lowPowerCtrl.mshrIsOk:is(0) end)
+                end
+            }
+            
+            env.posedge(2000)
+
+            dut.io_lowPowerOpt_shutdown_req:set(0)
+            env.dut_reset()
+        end
+
+        env.posedge(100)
+    end
+}
+
+local test_lowPower_retention_request = env.register_test_case "test_lowPower_retention_request" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        do
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.BC)
+
+            env.negedge()
+                tl_a:acquire_perm(to_address(0x01, 0x05), TLParam.NtoT, 1)
+            env.expect_happen_until(20, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeUnique) end)
+            mshrs[0].io_status_valid:expect(1)
+
+            env.negedge()
+                slice.lowPowerCtrl.powerState:expect(0) -- PowerState.ACTIVE
+                dut.io_lowPowerOpt_retention_req:set(1)
+                dut.io_lowPowerOpt_retention_rdy:expect(1)
+            env.expect_not_happen_until(1000, function () return dut.io_lowPowerOpt_retention_ack:is(1) end) -- retention ack should be FALSE since there exist a MSHR which is still valid
+            
+            chi_rxrsp:comp(0, 0, CHIResp.UC)
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.Grant) and tl_d.bits.source:is(1) end)
+            tl_e:grantack(0)
+
+            env.expect_happen_until(10, function () return mshrs[0].io_status_valid:is(0) end)
+            for i = 1, #mshrs do
+                mshrs[i].io_status_valid:expect(0)
+            end
+
+            -- when all the MSHRs are freed, lowPowerCtrl should send retention ack
+            env.expect_happen_until(100, function () return dut.io_lowPowerOpt_retention_ack:is(1) end)
+                dut.io_lowPowerOpt_retention_rdy:expect(1)
+                slice.lowPowerCtrl.powerState:expect(1) -- PowerState.TRANSITION
+            env.negedge()
+                slice.lowPowerCtrl.powerState:expect(3) -- PowerState.RETENTION
+        end
+
+        -- test snoop wakeup retention
+        do
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return dut.io_lowPowerOpt_retention_rdy:is(0) end)
+                    env.negedge()
+                        dut.io_lowPowerOpt_retention_req:set(0)
+                end
+            }
+
+            env.negedge()
+                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.bits.txnID:set(4)
+                chi_rxsnp.bits.addr:set(bit.rshift(to_address(0x01, 0x05), 3), true)
+                chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
+                chi_rxsnp.bits.retToSrc:set(0)
+                chi_rxsnp.valid:set(1)
+            env.expect_happen_until(150, function () return chi_rxsnp.ready:is(1) end) -- wait until sram wakeup
+            env.negedge()
+                chi_rxsnp.valid:set(0)
+
+            env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.opcode:is(TLOpcodeB.Probe) and tl_b.bits.param:is(TLParam.toN) end)
+            tl_c:probeack(to_address(0x01, 0x05), TLParam.TtoN, 0)
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+            env.negedge()
+                mshrs[0].io_status_valid:expect(0)
+
+            dut.io_lowPowerOpt_retention_rdy:expect(1)
+            dut.io_lowPowerOpt_retention_req:set(1)
+        end
+
+        env.posedge(100)
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -7442,6 +7697,9 @@ verilua "mainTask" { function ()
     test_homeNID_dbID()
     test_ooo_rxdat_refill()
     test_seperate_data_resp()
+    test_MakeUnique_and_SnpNotSharedDirty()
+    test_lowPower_shutdown_request()
+    test_lowPower_retention_request()
     end
 
    
