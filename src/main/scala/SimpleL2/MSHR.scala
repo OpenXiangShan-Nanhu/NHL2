@@ -1097,23 +1097,32 @@ class MSHR()(implicit p: Parameters) extends L2Module {
 
             when(replResp.bits.meta.state =/= MixedState.I) {
 
-                /** 
-                 * Select the replace operation according to the received response information.
-                 * The selected replace operation can also be changed based on the received ProbeAck response.
-                 * e.g. If replResp indicates that it is not a dirty way while the received ProbeAckData 
-                 *      indicates that it has dirty data from clients, hence the final replace operation 
-                 *      will be changed from Evict to WriteBackFull.
-                 */
-                when(replResp.bits.meta.isDirty) {
+                if (alwaysWriteBackFull) {
                     state.s_wb            := false.B // Send WriteBackFull is it is a dirty way
                     state.w_compdbid      := false.B // Wait CompDBIDResp
                     state.s_cbwrdata      := false.B // Send CopyBackWrData
                     state.w_cbwrdata_sent := false.B
                     needWb                := true.B
-                }.otherwise {
-                    state.s_evict      := false.B // Send Evict if it is not a dirty way
-                    state.w_evict_comp := false.B // Wait Comp
-                    needWb             := true.B
+                } else {
+
+                    /** 
+                     * Select the replace operation according to the received response information.
+                     * The selected replace operation can also be changed based on the received ProbeAck response.
+                     * e.g. If replResp indicates that it is not a dirty way while the received ProbeAckData 
+                     *      indicates that it has dirty data from clients, hence the final replace operation 
+                     *      will be changed from Evict to WriteBackFull.
+                     */
+                    when(replResp.bits.meta.isDirty) {
+                        state.s_wb            := false.B // Send WriteBackFull is it is a dirty way
+                        state.w_compdbid      := false.B // Wait CompDBIDResp
+                        state.s_cbwrdata      := false.B // Send CopyBackWrData
+                        state.w_cbwrdata_sent := false.B
+                        needWb                := true.B
+                    }.otherwise {
+                        state.s_evict      := false.B // Send Evict if it is not a dirty way
+                        state.w_evict_comp := false.B // Wait Comp
+                        needWb             := true.B
+                    }
                 }
 
                 /** Send Probe if victim way has clients */

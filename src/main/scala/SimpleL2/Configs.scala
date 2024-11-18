@@ -62,9 +62,10 @@ case class L2Param(
     rxsnpCreditMAX: Int = 2,
     rxdatCreditMAX: Int = 2,
     prefetchParams: Seq[SimpleL2.prefetch.PrefetchParameters] = Nil,
-    replacementPolicy: String = "plru", // Option: "random", "plru", "lru"
-    dataEccCode: String = "secded",     // Option: "none", "identity", "parity", "sec", "secded"
-    useDiplomacy: Boolean = false,      // If use diplomacy, EdgeInKey should be passed in
+    replacementPolicy: String = "plru",   // Option: "random", "plru", "lru"
+    dataEccCode: String = "secded",       // Option: "none", "identity", "parity", "sec", "secded"
+    useDiplomacy: Boolean = false,        // If use diplomacy, EdgeInKey should be passed in
+    alwaysWriteBackFull: Boolean = false, // If true, replace operation will always trigger WriteBackFull no matter whether the cacheline is clean or dirty
     hasLowPowerInterface: Boolean = false,
     lowPowerMSHRFreeThreshold: Int = 500,
     sramRetentionWakeupCycles: Int = 100 // Cycles to wait for SRAM retention wakeup
@@ -121,6 +122,8 @@ trait HasL2Param {
     val rxdatCreditMAX = l2param.rxdatCreditMAX
 
     val replacementPolicy = l2param.replacementPolicy
+
+    val alwaysWriteBackFull = l2param.alwaysWriteBackFull
 
     // Low power related parameters
     val hasLowPowerInterface      = l2param.hasLowPowerInterface
