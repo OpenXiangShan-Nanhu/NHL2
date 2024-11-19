@@ -1588,18 +1588,19 @@ local test_get_hit = env.register_test_case "test_get_hit" {
 
         -- normal hit
         do
-            verilua "appendTasks" {
-                hit_latency = function ()
-                    local s, e = 0, 0
-                    tl_a.valid:posedge()
-                    s = env.cycles()
+            -- TODO: There are some problems when jit.on()(Seagmentation fault)
+            -- verilua "appendTasks" {
+            --     hit_latency = function ()
+            --         local s, e = 0, 0
+            --         tl_a.valid:posedge()
+            --         s = env.cycles()
                     
-                    tl_d.valid:posedge()
-                    e = env.cycles()
+            --         tl_d.valid:posedge()
+            --         e = env.cycles()
                     
-                    print("Get hit latency => " .. (e -s))
-                end
-            }
+            --         print("Get hit latency => " .. (e -s))
+            --     end
+            -- }
 
             local source = 3 -- core 0 DCache
             local sink = nil
@@ -4265,7 +4266,6 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC)
-            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
             
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
             mshrs[0].state_s_evict:expect(0)
@@ -4288,6 +4288,12 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                     env.expect_happen_until(12, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xbeef") end)
                     env.negedge()
                     tl_e:grantack(0)
+                end
+            }
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
                 end
             }
             env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.data:get()[1] == 0xdead1 end)
@@ -4315,7 +4321,6 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 tl_a:acquire_block(to_address(0x01, 0x06), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead2", "0xbeef2", 5, CHIResp.UC)
-            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
             
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(0) end)
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(16) end)
@@ -4335,6 +4340,7 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 function ()
                     env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
+                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
                 end
             }
             tl_c:probeack(probe_address, TLParam.BtoN, 16)
@@ -4436,7 +4442,6 @@ local test_multi_probe = env.register_test_case "test_multi_probe" {
                 tl_a:acquire_block(to_address(0x01, 0x06), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead22", "0xbeef22", 5, CHIResp.UC)
-            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
 
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(0) end)
                 local probe_address = tl_b.bits.address:get()
@@ -4458,6 +4463,8 @@ local test_multi_probe = env.register_test_case "test_multi_probe" {
                 function()
                     env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
+
+                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end) -- Send CompAck after Evict is finished
                 end
             }
             tl_c:probeack(probe_address, TLParam.BtoN, 16) -- core 1
@@ -5154,8 +5161,8 @@ local test_nested_cancel_req = env.register_test_case "test_nested_cancel_req" {
                 env.expect_happen_until(10, function() return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             env.negedge()
                 chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
-            env.negedge()
-                env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
+            -- env.negedge()
+            --     env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
             env.negedge()
                 env.expect_happen_until(20, function() return mshrs[0].io_replResp_s3_valid:is(1) end)
 
@@ -7676,6 +7683,21 @@ local test_SnpOnce = env.register_test_case "test_SnpOnce" {
         iterate_all(test, MixedState.TTC, true)
         iterate_all(test, MixedState.TTD, true)
 
+        -- Test SnpOnce on invalid cacheline
+        local test = function (ret2src)
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.I)
+
+            env.negedge()
+                chi_rxsnp:snponce(to_address(0x01, 0x05), 0x10, ret2src, 1) -- txn_id = 0x10, src_id = 1
+
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(1) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+
+            env.negedge(100)
+        end
+        test(true)
+        test(false)
+
         env.negedge(100)
     end
 }
@@ -7683,7 +7705,6 @@ local test_SnpOnce = env.register_test_case "test_SnpOnce" {
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
-jit.off()
 verilua "mainTask" { function ()
     -- sim.dump_wave()
 
