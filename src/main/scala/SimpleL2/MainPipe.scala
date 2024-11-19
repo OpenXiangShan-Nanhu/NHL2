@@ -518,9 +518,9 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         val opcodeMatchOH = VecInit(opcodes.map(_ === task_s3.opcode))
         dirResp_s3.hit && meta_s3.isBranch && !meta_s3.isDirty && opcodeMatchOH.asUInt.orR || !dirResp_s3.hit || task_s3.snpHitWriteBack || task_s3.snpHitReq
     }
-    val dirWen_mshr_s3 = task_s3.isMshrTask && task_s3.updateDir && !hasRetry_s3                                   // if stage2 has retry task, we should not update directory info.
+    val dirWen_mshr_s3 = task_s3.isMshrTask && task_s3.updateDir && !hasRetry_s3 // if stage2 has retry task, we should not update directory info.
     val dirWen_a_s3    = task_s3.isChannelA && !mshrAlloc_s3 && !isGet_s3 && !isPrefetch_s3 && !acquireReplay_s3
-    val dirWen_b_s3    = task_s3.isChannelB && !mshrAlloc_s3 && isSnoop_s3 && !snpNotUpdateDir_s3 && !snpReplay_s3 // TODO: Snoop
+    val dirWen_b_s3    = task_s3.isChannelB && !mshrAlloc_s3 && isSnoop_s3 && !snpNotUpdateDir_s3 && !snpReplay_s3
     val dirWen_c_s3    = task_s3.isChannelC && hit_s3
 
     val newMeta_mshr_s3 = DirectoryMetaEntry(task_s3.tag, task_s3.newMetaEntry)
@@ -587,9 +587,9 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val replRespNeedProbe_s3  = replRespValid_s3 && io.replResp_s3.bits.meta.clientsOH.orR || lowPowerNeedProbe_s3
     val replRespTag_s3        = Mux(lowPowerNeedProbe_s3, dirResp_s3.meta.tag, io.replResp_s3.bits.meta.tag)
     val replRespWayOH_s3      = Mux(lowPowerNeedProbe_s3, task_s3.wayOH, io.replResp_s3.bits.wayOH)
-    val allocMshrIdx_s3       = OHToUInt(io.mshrFreeOH_s3)                                                                    // TODO: consider OneHot?
-    val needAllocDestSinkC_s3 = (needProbeOnHit_a_s3 || needProbe_b_s3 || needDCT_s3) && mshrAlloc_s3 || replRespNeedProbe_s3 // TODO: Snoop
-    val sinkDataToTempDS_s3   = needProbe_b_s3 || (isGet_s3 || isAcquire_s3) && needProbeOnHit_a_s3                           // AcquireBlock need GrantData response, nested ReleaseData will be saved into the TempDataStorage
+    val allocMshrIdx_s3       = OHToUInt(io.mshrFreeOH_s3)                                          // TODO: consider OneHot?
+    val needAllocDestSinkC_s3 = (needProbeOnHit_a_s3 || needProbe_b_s3 || needDCT_s3) && mshrAlloc_s3 || replRespNeedProbe_s3
+    val sinkDataToTempDS_s3   = needProbe_b_s3 || (isGet_s3 || isAcquire_s3) && needProbeOnHit_a_s3 // AcquireBlock need GrantData response, nested ReleaseData will be saved into the TempDataStorage
 
     /**
      *  If L2 is TRUNK, L1 migh owns a dirty cacheline, any dirty data should be updated in L2. GrantData must contain clean cacheline data.
@@ -641,7 +641,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val respParam_s3  = Mux(task_s3.isChannelA, Mux(task_s3.param === NtoB && !sinkRespPromoteT_a_s3, toB, toT), DontCare)
     val respOpcode_s3 = WireInit(0.U(math.max(task_s3.opcode.getWidth, task_s3.chiOpcode.getWidth).W))
-    respOpcode_s3 := MuxCase( // TODO:
+    respOpcode_s3 := MuxCase(
         DontCare,
         Seq(
             isAcquireBlock_s3                  -> GrantData,     // to SourceD
@@ -768,7 +768,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txrsp_s4.valid        := valid_snpresp_s4 || valid_snpresp_mp_s4
     io.txrsp_s4.bits.tgtID   := Mux(valid_snpresp_s4, task_s4.srcID, task_s4.tgtID)
     io.txrsp_s4.bits.txnID   := task_s4.txnID
-    io.txrsp_s4.bits.dbID    := task_s4.txnID // TODO:
+    io.txrsp_s4.bits.dbID    := task_s4.txnID
     io.txrsp_s4.bits.opcode  := SnpResp
     io.txrsp_s4.bits.resp    := snpResp_s4
     io.txrsp_s4.bits.respErr := RespErr.NormalOkay
@@ -858,7 +858,6 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         valid_s7 := false.B
     }
 
-    // TODO: extra queue for non-data SourceD
     io.sourceD_s6s7.valid := valid_s6 && isSourceD_s6 || valid_s7 && isSourceD_s7
     io.sourceD_s6s7.bits  := Mux(valid_s7 && isSourceD_s7, task_s7, task_s6)
 
@@ -870,12 +869,6 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txdat_s6s7.bits.be     := Fill(beatBytes, 1.U)
     io.txdat_s6s7.bits.opcode := Mux(valid_s7 && isTXDAT_s7, task_s7.opcode, task_s6.opcode)
     io.txdat_s6s7.bits.resp   := Mux(valid_s7 && isTXDAT_s7, task_s7.resp, task_s6.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.
-
-    // TODO: DCT
-    // io.txdat_s6s7.bits.txnID   := Mux(isCompData_s2, task_s2.fwdTxnID_opt.getOrElse(0.U), task_s2.txnID)
-    // io.txdat_s6s7.bits.dbID    := Mux(isCompData_s2, task_s2.txnID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
-    // io.txdat_s6s7.bits.homeNID := task_s2.srcID
-    // io.txdat_s6s7.bits.tgtID   := task_s2.fwdNID_opt.getOrElse(0.U)
 
     val mayUseDataBufCnt = PopCount(Cat(needsDataBuf_s4, needsDataBuf_s5, valid_s6, valid_s7))
     hasValidDataBuf_s6s7 := mayUseDataBufCnt < 2.U
