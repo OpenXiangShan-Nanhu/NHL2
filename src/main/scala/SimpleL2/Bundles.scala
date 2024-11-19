@@ -96,6 +96,28 @@ class TLRespBundle(params: TLBundleParameters)(implicit p: Parameters) extends L
     val last   = Bool()
 }
 
+/*
+    rdy:  Suggest power controller that L2 is preferring to retain.(Only works for retention)
+    req:  Actual retention request.
+    ack:  L2 accepts to change its mode.
+    nack: L2 refuses to change its mode.
+
+    Dynamic power mode transition, power controller issue request according rdy of devices
+    fsm:      ---A--|--T--|--R--|--T--|------A-----|-T-|------A------|-T-|---R----
+    rdy:      ___/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+    req:      _______/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\______________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+    ack:      _____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+    nack:     _________________________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_________________
+    pwr_mode: -----On------|-----Ret-----|--------------On---------------|--Ret---
+
+    Static power mode transition, power controller issue request according to software firmware
+    fsm:      ---A--|--T--|--R--|--T--|------A-----|-T-|------A------|-T-|---R----
+    req:      _______/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\______________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+    ack:      _____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
+    nack:     _________________________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_________________
+    pwr_mode: -----On------|-----Ret-----|--------------On---------------|--Ret---
+ */
+
 class LowPowerIO(implicit p: Parameters) extends L2Bundle {
     val shutdown = new Bundle {
         val req = Input(Bool())
@@ -106,19 +128,6 @@ class LowPowerIO(implicit p: Parameters) extends L2Bundle {
         val req = Input(Bool())
         val ack = Output(Bool())
         val rdy = Output(Bool()) // set to HIGH when the L2Cache can enter retention mode
-        //
-        // A: Active(stable), T: Transition, R: Retention(stable)
-        //
-        // mode:    <--------T----->|<------R------>|<--T-->|<----------A---------->|<--T-->|<------R------>
-        // clk:  ___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___/⎺⎺⎺\___
-        // req:  ___/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-        // ack:  ___________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-        // rdy:  ⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\______________________________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-        //                                   ↑                              ↑
-        //                                   |                              |
-        //     Snoop from next level cache. _/                               \_ Snoop has been processed.
-        //     The L2Cache must exit retention mode.                            Now the L2Cache allows to enter retention mode.
-        //
     }
 }
 
