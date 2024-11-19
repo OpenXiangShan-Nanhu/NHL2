@@ -516,7 +516,18 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val snpNotUpdateDir_s3 = {
         val opcodes       = VecInit(SnpShared, SnpNotSharedDirty) ++ { if (supportDCT) Seq(SnpSharedFwd, SnpNotSharedDirtyFwd) else Nil }
         val opcodeMatchOH = VecInit(opcodes.map(_ === task_s3.opcode))
-        dirResp_s3.hit && meta_s3.isBranch && !meta_s3.isDirty && opcodeMatchOH.asUInt.orR || !dirResp_s3.hit || task_s3.snpHitWriteBack || task_s3.snpHitReq
+
+        // @formatter:off
+        (
+            !dirResp_s3.hit ||
+            dirResp_s3.hit && (
+                meta_s3.isBranch && (!meta_s3.isDirty && opcodeMatchOH.asUInt.orR || isSnpOnceX_s3) ||
+                meta_s3.isTip && isSnpOnceX_s3
+            ) ||
+            task_s3.snpHitWriteBack ||
+            task_s3.snpHitReq
+        )
+        // @formatter:on
     }
     val dirWen_mshr_s3 = task_s3.isMshrTask && task_s3.updateDir && !hasRetry_s3 // if stage2 has retry task, we should not update directory info.
     val dirWen_a_s3    = task_s3.isChannelA && !mshrAlloc_s3 && !isGet_s3 && !isPrefetch_s3 && !acquireReplay_s3
@@ -533,7 +544,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     )
 
     val snprespPassDirty_s3  = !isSnpOnceX_s3 && meta_s3.isDirty && hit_s3 || task_s3.snpHitWriteBack && task_s3.snpGotDirty
-    val snprespFinalState_s3 = Mux(isSnpToN_s3, MixedState.I, Mux(task_s3.opcode === SnpCleanShared, meta_s3.state, MixedState.BC))
+    val snprespFinalState_s3 = Mux(isSnpToN_s3, MixedState.I, Mux(task_s3.opcode === SnpCleanShared || isSnpOnceX_s3, meta_s3.state, MixedState.BC))
     val newMeta_b_s3 = DirectoryMetaEntry(
         state = snprespFinalState_s3,
         tag = meta_s3.tag,

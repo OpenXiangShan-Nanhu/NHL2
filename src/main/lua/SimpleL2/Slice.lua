@@ -5077,7 +5077,7 @@ local test_sinkA_alias = env.register_test_case "test_sinkA_alias" {
                     if sinka_opcode == TLOpcodeA.AcquireBlock then
                         if acquire_param == TLParam.NtoT then
                             env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xabcd") end)
-                            env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xaabb")end)
+                            env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xabbb")end)
                         else
                             env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) end)
                             env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) end)
@@ -7498,10 +7498,185 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
                 mshrs[0].io_status_valid:expect(0)
 
             dut.io_lowPowerOpt_retention_rdy:expect(1)
-            dut.io_lowPowerOpt_retention_req:set(1)
+            dut.io_lowPowerOpt_retention_req:set(0)
         end
 
         env.posedge(100)
+    end
+}
+
+local test_SnpOnce = env.register_test_case "test_SnpOnce" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        local iterate_all = function(func, state, has_probeack_data)
+            if has_probeack_data then
+                for _, p in ipairs({false, true}) do
+                    func(false, 0, state, p)
+                    func(false, 1, state, p)
+                    func(false, 2, state, p)
+                    func(false, 3, state, p)
+                    func(true, 0, state, p)
+                    func(true, 1, state, p)
+                    func(true, 2, state, p)
+                    func(true, 3, state, p)
+                end
+            else 
+                func(false, 0, state)
+                func(false, 1, state)
+                func(false, 2, state)
+                func(false, 3, state)
+                func(true, 0, state)
+                func(true, 1, state)
+                func(true, 2, state)
+                func(true, 3, state)
+            end
+        end
+
+        local test = function (ret2src, clientsOH, state)
+            print("ret2src=" .. tostring(ret2src) .. ", clientsOH=" .. clientsOH .. ", state=" .. MixedState(state))
+            -- 
+            -- X            X
+            --   Branch/Tip
+            -- 
+
+            local is_dirty = state == MixedState.TD
+            local exp_resp = CHIResp.SC
+            if state == MixedState.TC or state == MixedState.TD then
+                exp_resp = CHIResp.UC
+            end
+
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, state, clientsOH)
+                write_ds(0x01, ("0b0001"):number(), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xaccc},
+                    {s = 256, e = 256 + 63, v = 0xbddd}
+                }, 512))
+            env.negedge()
+                chi_rxsnp:snponce(to_address(0x01, 0x05), 0x10, ret2src, 1) -- txn_id = 0x10, src_id = 1
+
+            fork {
+                function ()
+                    if ret2src == false and not is_dirty then
+                        -- env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(1) and chi_txrsp.bits.resp:is(exp_resp) end)
+                        env.expect_happen_until(10, function () return chi_txrsp:fire() end)
+                        chi_txrsp.bits.opcode:expect(OpcodeRSP.SnpResp)
+                        chi_txrsp.bits.txnID:expect(0x10) 
+                        chi_txrsp.bits.tgtID:expect(1)
+                        chi_txrsp.bits.resp:expect(exp_resp) 
+                    else
+                        env.expect_happen_until(10, function () 
+                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0x10) and 
+                                    chi_txdat.bits.tgtID:is(1) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
+                                    chi_txdat.bits.data:is_hex_str("0xaccc") 
+                        end)
+                        env.expect_happen_until(10, function () 
+                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0x10) and 
+                                    chi_txdat.bits.tgtID:is(1) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 
+                                    chi_txdat.bits.data:is_hex_str("0xbddd") 
+                        end)
+                    end
+                end,
+                function ()
+                    -- SnpOnce should not update directory
+                    env.expect_not_happen_until(50, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            
+            env.negedge(100)
+        end
+        iterate_all(test, MixedState.BC)
+        iterate_all(test, MixedState.TC)
+        iterate_all(test, MixedState.TD)
+
+        local test = function(ret2src, clientsOH, state, probeack_data)
+            if clientsOH == 0 or clientsOH == 3 then 
+                return
+            end
+            print("ret2src=" .. tostring(ret2src) .. ", clientsOH=" .. clientsOH .. ", state=" .. MixedState(state) .. ", probeack_data=" .. tostring(probeack_data))
+            -- 
+            -- Tip    X
+            --   Trunk
+            -- 
+            local is_dirty = probeack_data or state == MixedState.TTD
+            local exp_resp = CHIResp.UC
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, state, clientsOH)
+                write_ds(0x01, ("0b0001"):number(), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xaccc},
+                    {s = 256, e = 256 + 63, v = 0xbddd}
+                }, 512))
+            env.negedge()
+                chi_rxsnp:snponce(to_address(0x01, 0x05), 0x10, ret2src, 1) -- txn_id = 0x10, src_id = 1
+
+            env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.opcode:is(TLOpcodeB.Probe) and tl_b.bits.param:is(TLParam.toB) and tl_b.bits.address:is(to_address(0x01, 0x05)) end)
+            
+            local probeack_source = 0
+            if clientsOH == 2 then
+                probeack_source = 16
+            end
+            if probeack_data then
+                tl_c:probeack_data(to_address(0x01, 0x05), TLParam.TtoB, "0xabab", "0xefef", probeack_source)
+            else
+                tl_c:probeack(to_address(0x01, 0x05), TLParam.TtoB, probeack_source)
+            end
+
+            fork {
+                function ()
+                    if ret2src == false and not is_dirty then
+                        -- env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(1) and chi_txrsp.bits.resp:is(exp_resp) end)
+                        env.expect_happen_until(10, function () return chi_txrsp:fire() end)
+                        chi_txrsp.bits.opcode:expect(OpcodeRSP.SnpResp)
+                        chi_txrsp.bits.txnID:expect(0x10) 
+                        chi_txrsp.bits.tgtID:expect(1)
+                        chi_txrsp.bits.resp:expect(exp_resp) 
+                    else
+                        local data_0 = "0xaccc"
+                        local data_1 = "0xbddd"
+                        if probeack_data then
+                            data_0 = "0xabab"
+                            data_1 = "0xefef"
+                        end
+                        env.expect_happen_until(10, function () 
+                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0x10) and 
+                                    chi_txdat.bits.tgtID:is(1) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
+                                    chi_txdat.bits.data:is_hex_str(data_0) 
+                        end)
+                        env.expect_happen_until(10, function () 
+                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0x10) and 
+                                    chi_txdat.bits.tgtID:is(1) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 
+                                    chi_txdat.bits.data:is_hex_str(data_1) 
+                        end)
+
+                        env.negedge(10)
+                            mshrs[0].io_status_valid:expect(0)
+                    end 
+                end,
+
+                function ()
+                    env.expect_happen_until(50, function () 
+                        return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and 
+                            mp.io_dirWrite_s3_bits_meta_clientsOH:is(clientsOH) and
+                            mp.io_dirWrite_s3_bits_meta_state:is(state)
+                    end)
+                end,
+
+                function ()
+                    if probeack_data then
+                        env.expect_happen_until(50, function () return ds.io_refillWrite_s2_valid:is(1) end)
+                    end
+                end
+            }
+
+            env.negedge(100)
+        end
+        iterate_all(test, MixedState.TTC, true)
+        iterate_all(test, MixedState.TTD, true)
+
+        env.negedge(100)
     end
 }
 
@@ -7593,6 +7768,7 @@ verilua "mainTask" { function ()
     test_MakeUnique_and_SnpNotSharedDirty()
     test_lowPower_shutdown_request()
     test_lowPower_retention_request()
+    test_SnpOnce()
     end
 
    
