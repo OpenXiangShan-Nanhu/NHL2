@@ -1356,6 +1356,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     when(snpMatchReqAddr) {
         val nested = io.nested.snoop
 
+        when(nested.toN || nested.toB) {
+            assert(!(!state.s_compack && state.w_comp && state.w_compdat_first), "MSHR should not be nested by Snoop if the CompAck has not been sent by MSHR and the MSHR has already got CompData/Comp from downstream cache")
+        }
+
         when(nested.toN) {
             gotT := false.B
 
