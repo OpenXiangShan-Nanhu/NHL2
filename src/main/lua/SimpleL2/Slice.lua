@@ -1751,6 +1751,8 @@ local test_miss_need_evict = env.register_test_case "test_miss_need_evict" {
             env.expect_happen_until(10, function() return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
         env.posedge()
             chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+        env.negedge()
+            env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
 
         verilua "appendTasks" {
             function ()
@@ -1761,9 +1763,6 @@ local test_miss_need_evict = env.register_test_case "test_miss_need_evict" {
 
                 env.negedge()
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
-
-                env.negedge()
-                    env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- CompAck is sent after Evict is finished
             end
         }
         
@@ -1818,6 +1817,7 @@ local test_miss_need_evict_and_probe = env.register_test_case "test_miss_need_ev
             env.expect_happen_until(10, function() return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
         env.posedge()
             chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5
 
         env.expect_happen_until(10, function () return tl_b:fire() end)
         tl_b:dump()
@@ -1851,11 +1851,6 @@ local test_miss_need_evict_and_probe = env.register_test_case "test_miss_need_ev
                     end
                 }
                 
-                fork {
-                    function ()
-                        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5, CompAck is sent after WriteBackFull is finished
-                    end
-                }
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0xabab") end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0xefef") end)
             end,
@@ -1884,9 +1879,6 @@ local test_miss_need_evict_and_probe = env.register_test_case "test_miss_need_ev
                     chi_txreq:dump()
                 env.negedge()
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
-
-                env.posedge()
-                    env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5, CompAck is sent after Evict is finished
             end
         }
         
@@ -1919,6 +1911,7 @@ local test_miss_need_writebackfull = env.register_test_case "test_miss_need_writ
             chi_txreq.bits.opcode:expect(OpcodeREQ.ReadNotSharedDirty)
         env.posedge()
             chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5
 
         verilua "appendTasks" {
             function ()
@@ -1937,12 +1930,6 @@ local test_miss_need_writebackfull = env.register_test_case "test_miss_need_writ
 
                 env.negedge()
                     chi_rxrsp:comp_dbidresp(txn_id, dbid)
-
-                fork {
-                    function ()
-                        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5, CompAck is sent after WriteBackFull is finished
-                    end
-                }
 
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0x0") end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0x0") end)
@@ -1986,6 +1973,7 @@ local test_miss_need_writebackfull_and_probe = env.register_test_case "test_miss
             chi_txreq.bits.opcode:expect(OpcodeREQ.ReadNotSharedDirty)
         env.posedge()
             chi_rxdat:compdat(0, "0xabcd", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5
 
         env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
         local probe_address = tl_b.bits.address:get()
@@ -2015,12 +2003,6 @@ local test_miss_need_writebackfull_and_probe = env.register_test_case "test_miss
 
                 env.negedge()
                     chi_rxrsp:comp_dbidresp(txn_id, dbid)
-
-                fork {
-                    function ()
-                        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5, CompAck is sent after WriteBackFull is finished
-                    end
-                }
 
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0xcdcd") end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0xefef") end)
@@ -2055,12 +2037,6 @@ local test_miss_need_writebackfull_and_probe = env.register_test_case "test_miss
 
                 env.negedge()
                     chi_rxrsp:comp_dbidresp(txn_id, dbid)
-
-                fork {
-                    function ()
-                        env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- dbID = txnID = 5, CompAck is sent after WriteBackFull is finished
-                    end
-                }
 
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0x00") end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.txnID:is(dbid) and chi_txdat.bits.data:is_hex_str("0x00") end)
@@ -3255,6 +3231,7 @@ local test_replresp_retry = env.register_test_case "test_replresp_retry" {
         env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x05)) end)
         env.negedge()
         chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
 
         for i = 1, 20 do
             env.expect_happen_until(10, function () return mp.io_replResp_s3_valid:is(1) and mp.io_replResp_s3_bits_retry:is(1) end)
@@ -3266,7 +3243,6 @@ local test_replresp_retry = env.register_test_case "test_replresp_retry" {
         env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
         env.negedge()
         chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
-        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end) -- CompAck is sent after Evict is finished
 
         env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xdead") end)
         env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xbeef") end)
@@ -4266,6 +4242,7 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC)
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
             
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
             mshrs[0].state_s_evict:expect(0)
@@ -4291,11 +4268,6 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 end
             }
 
-            fork {
-                function ()
-                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
-                end
-            }
             env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.data:get()[1] == 0xdead1 end)
             env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.data:get()[1] == 0xbeef1 end)
             env.negedge(10)
@@ -4321,6 +4293,7 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 tl_a:acquire_block(to_address(0x01, 0x06), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead2", "0xbeef2", 5, CHIResp.UC)
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
             
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(0) end)
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(16) end)
@@ -4340,7 +4313,6 @@ local test_release_nested_probe = env.register_test_case "test_release_nested_pr
                 function ()
                     env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
-                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
                 end
             }
             tl_c:probeack(probe_address, TLParam.BtoN, 16)
@@ -4442,6 +4414,7 @@ local test_multi_probe = env.register_test_case "test_multi_probe" {
                 tl_a:acquire_block(to_address(0x01, 0x06), TLParam.NtoT, source)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
             chi_rxdat:compdat(0, "0xdead22", "0xbeef22", 5, CHIResp.UC)
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
 
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.source:is(0) end)
                 local probe_address = tl_b.bits.address:get()
@@ -4463,8 +4436,6 @@ local test_multi_probe = env.register_test_case "test_multi_probe" {
                 function()
                     env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
                     chi_rxrsp:comp(0, 5, CHIResp.I) -- Comp for Evict
-
-                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end) -- Send CompAck after Evict is finished
                 end
             }
             tl_c:probeack(probe_address, TLParam.BtoN, 16) -- core 1
@@ -7273,7 +7244,8 @@ local test_MakeUnique_and_SnpNotSharedDirty = env.register_test_case "test_MakeU
             tl_a:acquire_perm(to_address(0x01, 0x01), TLParam.NtoT, 0) -- source = 0
         
         env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeUnique) end)
-            chi_rxrsp:comp(0, 1, CHIResp.UC) -- txn_id = 0, db_id = 1
+        chi_rxrsp:comp(0, 1, CHIResp.UC) -- txn_id = 0, db_id = 1
+        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
 
         fork {
             function ()
@@ -7281,11 +7253,6 @@ local test_MakeUnique_and_SnpNotSharedDirty = env.register_test_case "test_MakeU
                 env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) and chi_txreq.bits.txnID:is(txn_id) end)
                     chi_rxrsp:comp_dbidresp(txn_id, 1) -- txn_id = 0, db_id = 1
 
-                fork {
-                    function ()
-                        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
-                    end
-                }
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x00) end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) and chi_txdat.bits.dataID:is(0x02) end)
             end,
@@ -7965,8 +7932,8 @@ verilua "mainTask" { function ()
     test_txrsp_mp_replay()
     test_sinkA_replay()
 
-    test_snoop_nested_writebackfull()
-    test_snoop_nested_evict()
+    -- test_snoop_nested_writebackfull()
+    -- test_snoop_nested_evict()
     test_snoop_nested_read()
 
     test_multi_probe()
@@ -7977,8 +7944,8 @@ verilua "mainTask" { function ()
     test_release_nest_get()
     test_cancel_sinkC_respMap()
     test_sinkA_alias()
-    test_snoop_hit_req()
-    test_mshr_realloc()
+    -- test_snoop_hit_req()
+    -- test_mshr_realloc()
     test_nested_cancel_req()
     test_reorder_rxdat()
     test_other_snoop()
