@@ -142,7 +142,7 @@ trait HasL2Param {
     val dataEccBits     = dataWithECCBits - eccProtectBits
     val enableDataECC   = dataEccBits > 0
 
-    val deadlockThreshold = 10000 * 2
+    val deadlockThreshold = 10000 * 4
 
     val nrClients = l2param.nrClients
 
