@@ -94,6 +94,8 @@ class MshrStatus()(implicit p: Parameters) extends L2Bundle {
     val reqAllowSnoop = Bool()
     val gotDirtyData  = Bool() // TempDS has dirty data
 
+    val hasPendingRefill = Bool()
+
     val waitProbeAck = Bool() // for assertion use only
 }
 
@@ -1500,7 +1502,8 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first || !state.s_cbwrdata || !state.w_evict_comp
         )
     }
-    io.status.gotDirtyData := gotDirty || probeGotDirty && isAcquireProbe || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty
+    io.status.hasPendingRefill := hasPendingRefill
+    io.status.gotDirtyData     := gotDirty || probeGotDirty && isAcquireProbe || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty
 
     val addr_reqTag_debug  = Cat(io.status.reqTag, io.status.set, 0.U(6.W))
     val addr_metaTag_debug = Cat(io.status.metaTag, io.status.set, 0.U(6.W))

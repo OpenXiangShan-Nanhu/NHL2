@@ -27,6 +27,7 @@ case class L1Param(
 
 case class L2OptimizationParam(
     reqBufOutLatch: Boolean = true,
+    snpBufOutLatch: Boolean = true,
     rxsnpHasLatch: Boolean = true,   // Whether to latch the request for one cycle delay in the RXSNP module
     sinkcHasLatch: Boolean = true,   // Whether to latch the request for one cycle delay in the SinkC module
     sourcebHasLatch: Boolean = true, // Whether to latch the request for one cycle delay on the path from MSHR sourceb task to SourceB
@@ -56,6 +57,7 @@ case class L2Param(
     nrNonDataSourceDEntry: Int = 4,
     nrTXRSPEntry: Int = 4,
     nrReqBufEntry: Int = 4,
+    nrSnpBufEntry: Int = 4,
     optParam: L2OptimizationParam = L2OptimizationParam(),
     supportDCT: Boolean = true,
     rxrspCreditMAX: Int = 2,
@@ -112,6 +114,7 @@ trait HasL2Param {
     val optParam              = l2param.optParam
     val supportDCT            = l2param.supportDCT
     val nrReqBufEntry         = l2param.nrReqBufEntry
+    val nrSnpBufEntry         = l2param.nrSnpBufEntry
     val nrNonDataSourceDEntry = l2param.nrNonDataSourceDEntry
     val nrTXRSPEntry          = l2param.nrTXRSPEntry
     val nrReplayEntrySinkA    = l2param.nrReplayEntrySinkA

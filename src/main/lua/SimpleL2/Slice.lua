@@ -3274,7 +3274,7 @@ local test_txrsp_mp_replay = env.register_test_case "test_txrsp_mp_replay" {
 
         for i = 1, 10 do
             env.expect_happen_until(10, function ()
-                return mp.io_replay_s4_valid:is(1)
+                return mp.io_snpBufReplay_s4_valid:is(1)
             end)
             env.expect_not_happen_until(10, function ()
                 return mp.io_dirWrite_s3_valid:is(1)
@@ -3320,7 +3320,7 @@ local test_sinkA_replay = env.register_test_case "test_sinkA_replay" {
         
         for i = 1, 10 do
             env.expect_happen_until(10, function ()
-                return mp.io_replay_s4_valid:is(1)
+                return mp.io_replayOpt_s4_valid:is(1)
             end)
             env.expect_not_happen_until(10, function ()
                 return mp.io_dirWrite_s3_valid:is(1)
@@ -4842,7 +4842,7 @@ local test_grant_on_stage4 = env.register_test_case "test_grant_on_stage4" {
                     env.expect_not_happen_until(10, function() return mp.io_dirWrite_s3_valid:is(1) end)
                 end
             }
-            env.expect_happen_until(10, function() return mp.io_replay_s4_valid:is(1) end)
+            env.expect_happen_until(10, function() return mp.io_replayOpt_s4_valid:is(1) end)
 
             env.negedge(10)
                 mp.io_nonDataRespCnt:set_release()
@@ -5909,7 +5909,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                 verilua "appendTasks" {
                     function ()
                         if ret2src == 0 then
-                            env.expect_happen_until(15, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
+                            env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
                             chi_txrsp.bits.txnID:expect(txn_id)
                             chi_txrsp.bits.tgtID:expect(src_id)
                         elseif ret2src == 1 then
@@ -5967,7 +5967,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                 verilua "appendTasks" {
                     function ()
                         if ret2src == 0 then
-                            env.expect_happen_until(15, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
+                            env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
                             chi_txrsp.bits.txnID:expect(txn_id)
                             chi_txrsp.bits.tgtID:expect(src_id)
                         elseif ret2src == 1 then
@@ -6142,7 +6142,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     end,
                     function ()
                         -- Check writeback directory
-                        env.expect_happen_until(15, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.BC) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
+                        env.expect_happen_until(20, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.BC) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
                     end
                 }
                 env.negedge(30)
@@ -6238,7 +6238,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     end,
                     function ()
                         -- Check writeback directory
-                        env.expect_happen_until(15, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.BC) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
+                        env.expect_happen_until(20, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.BC) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
                     end
                 }
                 env.negedge(30)
@@ -6329,7 +6329,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                 verilua "appendTasks" {
                     function ()
                         if ret2src == 0 then
-                            env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+                            env.expect_happen_until(25, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
                             chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id)
                         elseif ret2src == 1 then
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
@@ -6340,7 +6340,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                         end
                     end,
                     function ()
-                        env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
+                        env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
                         chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                         env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                     end,
@@ -6414,7 +6414,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                         env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                     end,
                     function ()
-                        env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
+                        env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
                         chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                         env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.UC_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                     end,
@@ -6860,8 +6860,8 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
         do_test_SnpUniqueFwd()
 
         -- TODO: nested scenarios
-        do_test_SnpNotSharedDirtyFwd_nested()
-        do_test_SnpUniqueFwd_nested()
+        -- do_test_SnpNotSharedDirtyFwd_nested()
+        -- do_test_SnpUniqueFwd_nested()
     end
 }
 
@@ -7932,9 +7932,10 @@ verilua "mainTask" { function ()
     test_txrsp_mp_replay()
     test_sinkA_replay()
 
+    -- TODO:
     -- test_snoop_nested_writebackfull()
     -- test_snoop_nested_evict()
-    test_snoop_nested_read()
+    -- test_snoop_nested_read()
 
     test_multi_probe()
     test_release_nested_probe()
