@@ -20,8 +20,7 @@ object ReplayResion {
 }
 
 class ReplayRequest(implicit p: Parameters) extends L2Bundle {
-    val task   = new TaskBundle
-    val reason = UInt(ReplayResion.width.W)
+    val task = new TaskBundle
 }
 
 class ReplaySubEntry(implicit p: Parameters) extends L2Bundle {

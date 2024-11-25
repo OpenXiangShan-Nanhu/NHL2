@@ -61,7 +61,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         }
 
         /** Stage 4 */
-        val replay_s4           = ValidIO(new ReplayRequest)
+        val replayOpt_s4        = if (optParam.sinkaStallOnReqArb) Some(ValidIO(new ReplayRequest)) else None
+        val snpBufReplay_s4     = ValidIO(new SnpBufReplay)
         val reqBufReplay_s4_opt = if (!optParam.sinkaStallOnReqArb) Some(ValidIO(new ReqBufReplay)) else None
         val allocDestSinkC_s4   = ValidIO(new RespDataDestSinkC)                 // Alloc SinkC resps(ProbeAckData) data destination, ProbeAckData can be either saved into DataStorage or TempDataStorage
         val sourceD_s4          = DecoupledIO(new TaskBundle)                    // SourceD for non-data resp
@@ -687,6 +688,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val valid_snpresp_s3     = !snpNeedData_b_s3 && snpChnlReqOK_s3 && !snpReplay_s3
     val valid_snpresp_mp_s3  = mpTask_snpresp_s3 && task_s3.channel === CHIChannel.TXRSP
     val valid_reqbuf_s3      = valid_s3 && task_s3.isChannelA && !optParam.sinkaStallOnReqArb.B
+    val valid_snpbuf_s3      = valid_s3 && task_s3.isChannelB
     val valid_replay_s3      = mshrReplay_s3 || snpReplay_s3 || acquireReplay_s3 || getReplay_s3
     val valid_refill_mp_s3   = mpTask_refill_s3
     val valid_refill_s3      = !mshrAlloc_s3 && task_s3.isChannelA && !acquireReplay_s3 && !getReplay_s3 && valid_s3
@@ -736,7 +738,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
             )
         )
 
-    val fire_s3 = valid_reqbuf_s3 || needAllocDestSinkC_s3 || valid_replay_s3 || valid_refill_s3 || valid_cbwrdata_mp_s3 || valid_compdata_mp_s3 || valid_snpresp_s3 || valid_snpresp_mp_s3 || valid_snpdata_s3 || valid_snpdata_mp_s3 || valid_snpresp_mp_s3 || valid_refill_mp_s3
+    val fire_s3 = valid_reqbuf_s3 || valid_snpbuf_s3 || needAllocDestSinkC_s3 || valid_replay_s3 || valid_refill_s3 || valid_cbwrdata_mp_s3 || valid_compdata_mp_s3 || valid_snpresp_s3 || valid_snpresp_mp_s3 || valid_snpdata_s3 || valid_snpdata_mp_s3 || valid_snpresp_mp_s3 || valid_refill_mp_s3
     assert(!(valid_replay_s3 && valid_refill_s3), "Only one of valid_replay_s3 and valid_refill_s3 can be true!")
 
     // -----------------------------------------------------------------------------------------
@@ -766,6 +768,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val valid_snpresp_s4      = valid_s4 && RegEnable(valid_snpresp_s3, false.B, fire_s3)
     val valid_snpresp_mp_s4   = valid_s4 && RegEnable(valid_snpresp_mp_s3, false.B, fire_s3)
     val valid_reqbuf_s4       = valid_s4 && RegEnable(valid_reqbuf_s3, false.B, fire_s3) && !optParam.sinkaStallOnReqArb.B
+    val valid_snpbuf_s4       = valid_s4 && RegEnable(valid_snpbuf_s3, false.B, fire_s3)
     val valid_replay_s4       = valid_s4 && RegEnable(valid_replay_s3, false.B, fire_s3)
     val valid_refill_mp_s4    = valid_s4 && RegEnable(valid_refill_mp_s3, false.B, fire_s3)
     val valid_refill_s4       = valid_s4 && RegEnable(valid_refill_s3, false.B, fire_s3)
@@ -791,9 +794,14 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         task_s4 := task_s3
     }
 
-    io.replay_s4.valid       := valid_replay_s4
-    io.replay_s4.bits.task   := task_s4
-    io.replay_s4.bits.reason := DontCare
+    io.replayOpt_s4.foreach { replay_s4 =>
+        replay_s4.valid     := valid_replay_s4
+        replay_s4.bits.task := task_s4
+    }
+
+    io.snpBufReplay_s4.valid             := valid_snpbuf_s4
+    io.snpBufReplay_s4.bits.shouldReplay := valid_replay_s4
+    io.snpBufReplay_s4.bits.txnID        := task_s4.txnID
 
     io.reqBufReplay_s4_opt.foreach { reqBufReplay_s4 =>
         reqBufReplay_s4.valid             := valid_reqbuf_s4
@@ -1027,9 +1035,10 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     XSPerfAccumulate("mshr_snpRetry_s4_cnt", io.retryTasks.stage4.valid && io.retryTasks.stage4.bits.isRetry_s4 && snpRetry_s4)
     XSPerfAccumulate("mshr_copyBackRetry_s4_cnt", io.retryTasks.stage4.valid && io.retryTasks.stage4.bits.isRetry_s4 && copyBackRetry_s4)
     XSPerfAccumulate("mshr_refillRetry_s4_cnt", io.retryTasks.stage4.valid && io.retryTasks.stage4.bits.isRetry_s4 && refillRetry_s4)
-    XSPerfAccumulate("replay_s4_cnt", io.replay_s4.valid)
     if (!optParam.sinkaStallOnReqArb) {
         XSPerfAccumulate("reqBufReplay_s4_cnt", io.reqBufReplay_s4_opt.get.valid)
+    } else {
+        XSPerfAccumulate("replay_s4_cnt", io.replayOpt_s4.get.valid)
     }
 
     dontTouch(io)
