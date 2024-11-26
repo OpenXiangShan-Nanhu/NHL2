@@ -29,6 +29,8 @@ class SnpBufEntry(implicit p: Parameters) extends L2Bundle {
 class SnpBufReplay(implicit p: Parameters) extends L2Bundle {
     val shouldReplay = Bool()
     val txnID        = UInt(chiBundleParams.txnIdBits.W)
+    val set          = UInt(setBits.W)
+    val tag          = UInt(tagBits.W)
 }
 
 class SnoopBuffer()(implicit p: Parameters) extends L2Module {
@@ -49,8 +51,31 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
     io.taskIn.ready := hasEntry
 
     val replay_s4      = io.replay_s4.bits
-    val replayMatchVec = VecInit(buffers.map { buf => buf.task.txnID === replay_s4.txnID && buf.state =/= SnpBufState.INVALID }).asUInt
-    assert(!(io.replay_s4.fire && PopCount(replayMatchVec) > 1.U), "replay_s4 match multiple buffers: %b txnID: %d", replayMatchVec, io.replay_s4.bits.txnID)
+    val replayTxnID_s4 = replay_s4.txnID
+    val replaySet_s4   = replay_s4.set
+    val replayTag_s4   = replay_s4.tag
+    val replayMatchVec = VecInit(buffers.map { buf => buf.task.txnID === replay_s4.txnID && buf.task.set === replay_s4.set && buf.task.tag === replay_s4.tag && buf.state =/= SnpBufState.INVALID }).asUInt
+    assert(
+        !(io.replay_s4.fire && PopCount(replayMatchVec) > 1.U),
+        "replay_s4 match multiple buffers: %b txnID: %d/0x%x set: %d/0x%x tag: %d/0x%x",
+        replayMatchVec,
+        replayTxnID_s4,
+        replayTxnID_s4,
+        replaySet_s4,
+        replaySet_s4,
+        replayTag_s4,
+        replayTag_s4
+    )
+    assert(
+        !(io.replay_s4.fire && PopCount(replayMatchVec) === 0.U),
+        "replay_s4 match no buffers! txnID: %d/0x%x set: %d/0x%x tag: %d/0x%x",
+        replayMatchVec,
+        replayTxnID_s4,
+        replayTxnID_s4,
+        replaySet_s4,
+        replayTag_s4,
+        replayTag_s4
+    )
 
     def addrConflict(set: UInt, tag: UInt): Bool = {
         val mshrAddrConflict = VecInit(io.mshrStatus.map { case s =>
@@ -68,7 +93,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
         }
 
         when(buf.state =/= SnpBufState.INVALID) {
-            when(io.replay_s4.fire && io.replay_s4.bits.txnID === buf.task.txnID) {
+            when(io.replay_s4.fire && io.replay_s4.bits.txnID === buf.task.txnID && buf.task.set === io.replay_s4.bits.set && buf.task.tag === io.replay_s4.bits.tag) {
                 when(io.replay_s4.bits.shouldReplay) {
                     buf.state             := SnpBufState.WAIT
                     buf.task.isReplayTask := true.B
