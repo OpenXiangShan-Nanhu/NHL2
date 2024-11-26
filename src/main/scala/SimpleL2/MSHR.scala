@@ -1157,7 +1157,8 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     when(nestedMatch) {
         val nested = io.nested.snoop
         when(nested.cleanDirty) {
-            meta.state := MixedState.cleanDirty(meta.state)
+            meta.state   := MixedState.cleanDirty(meta.state)
+            replGotDirty := false.B
         }
 
         when(nested.toB) {
