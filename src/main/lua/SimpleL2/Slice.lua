@@ -4647,24 +4647,23 @@ local test_snoop_nested_read = env.register_test_case "test_snoop_nested_read" {
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpShared)
                 chi_rxsnp.bits.retToSrc:set(0)
                 chi_rxsnp.valid:set(1)
-                env.posedge()
-                chi_rxsnp.ready:expect(0) -- Snoop will be blocked beacuse Acquire MSHR needs Probe
             env.negedge()
                 chi_rxsnp.valid:set(0)
-            tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 17)
 
+            -- Snoop will be blocked beacuse Acquire MSHR needs Probe
+            env.expect_not_happen_until(20, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(0x02) and mp.task_s3_isMshrTask:is(0) and mp.task_s3_isCHIOpcode:is(1) and mp.task_s3_source:is(4) end)
+
+            tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 17)
             env.negedge(10)
-            --     chi_rxsnp.ready:expect(0) -- Snoop will be blocked beacuse Acquire MSHR needs to wait grant ack
-            -- env.negedge()
-            --     chi_rxsnp.valid:set(0)
             tl_e:grantack(0)
 
+            -- 
+            -- After processing the AcquirePerm.NtoT, we will get:
             -- 
             --    I     TC
             --     \    /
             --       TTD
             -- 
-            chi_rxsnp:snpshared(to_address(0x01, 0x01), 3, 0)
             env.expect_happen_until(10, function () return mp.io_dirResp_s3_valid:is(1) and mp.io_dirResp_s3_bits_meta_state:is(MixedState.TTD) end)
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toB) end)
             tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoN, 0)
@@ -4697,32 +4696,22 @@ local test_snoop_nested_read = env.register_test_case "test_snoop_nested_read" {
                 chi_rxsnp.bits.txnID:set(3)
                 chi_rxsnp.bits.addr:set(bit.rshift(to_address(0x01, 0x01), 3), true)
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
-                chi_rxsnp.bits.retToSrc:set(0)
+                chi_rxsnp.bits.retToSrc:set(ret2src)
                 chi_rxsnp.valid:set(1)
-                env.posedge()
-                    chi_rxsnp.ready:expect(0) -- Snoop is blocked since the previous Probe is not finished
             env.negedge()
                 chi_rxsnp.valid:set(0)
+
+            -- Snoop will be blocked beacuse Acquire MSHR needs Probe
+            env.expect_not_happen_until(20, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(0x02) and mp.task_s3_isMshrTask:is(0) and mp.task_s3_isCHIOpcode:is(1) and mp.task_s3_source:is(3) end)
 
             mshrs[0].state_w_aprobeack:expect(0)
             tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 16)
             mshrs[0].state_w_aprobeack:expect(1)
 
-            env.negedge()
-                chi_rxsnp.bits.txnID:set(3)
-                chi_rxsnp.bits.addr:set(bit.rshift(to_address(0x01, 0x01), 3), true)
-                chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
-                chi_rxsnp.bits.retToSrc:set(ret2src)
-                chi_rxsnp.valid:set(1)
-                env.posedge()
-                    chi_rxsnp.ready:expect(1) -- Snoop is now permitted to enter MainPipe
-            env.negedge()
-                chi_rxsnp.valid:set(0)
-
             if ret2src == 0 then
                 env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
             else
-                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0x1111 end)
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0x1111 end)
                 env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0x2222 end)
             end
             env.negedge(10)
@@ -6859,9 +6848,8 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
         do_test_SnpNotSharedDirtyFwd(OpcodeSNP.SnpSharedFwd) -- SnpSharedFwd and SnpNotSharedDirtyFwd are basically the same
         do_test_SnpUniqueFwd()
 
-        -- TODO: nested scenarios
-        -- do_test_SnpNotSharedDirtyFwd_nested()
-        -- do_test_SnpUniqueFwd_nested()
+        do_test_SnpNotSharedDirtyFwd_nested()
+        do_test_SnpUniqueFwd_nested()
     end
 }
 
@@ -7976,7 +7964,7 @@ verilua "mainTask" { function ()
     -- TODO:
     -- test_snoop_nested_writebackfull()
     -- test_snoop_nested_evict()
-    -- test_snoop_nested_read()
+    test_snoop_nested_read()
 
     test_multi_probe()
     test_release_nested_probe()
