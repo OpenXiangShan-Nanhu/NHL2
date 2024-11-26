@@ -7904,6 +7904,47 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
     end
 }
 
+local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        env.negedge()
+            write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TTD, 0x01)
+        env.negedge()
+            chi_rxsnp:snpshared(to_address(0x01, 0x01), 3, 0) -- txn_id = 3, ret2src = 0
+        env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toB) end)
+        env.negedge()
+            tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoB, 0)
+
+        reqArb.blockC_s1:set_force(1)
+        env.negedge()
+            tl_c.valid:set(1)
+            tl_c.bits.opcode:set(TLOpcodeC.Release)
+            tl_c.bits.param:set(TLParam.BtoN)
+            tl_c.bits.source:set(0)
+            tl_c.bits.address:set(to_address(0x01, 0x01), true)
+            env.posedge()
+            tl_c.ready:expect(0)
+        env.expect_happen_until(10, function () return reqArb.mshrTaskFull_s1:is(1) and reqArb.mshrTask_s1_updateDir:is(1) end)
+            reqArb.blockC_s1:set_release()
+        env.negedge()
+            reqArb.valid_s2:expect(1)
+            reqArb.addrConflict_forSinkC:expect(1)
+            reqArb.blockC_s1:expect(1)
+            tl_c.ready:expect(0)
+        env.negedge()
+            reqArb.valid_s3:expect(1)
+            reqArb.blockC_s1:expect(1)
+            tl_c.ready:expect(0)
+        env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.ReleaseAck) end)
+
+        env.negedge(100)
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -7993,6 +8034,7 @@ verilua "mainTask" { function ()
     test_lowPower_retention_request()
     test_SnpOnce()
     test_SnpOnceFwd()
+    test_s2s3_block_release()
     end
 
    

@@ -99,10 +99,12 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     val valid_s3     = RegInit(false.B)
     val set_s3       = RegInit(0.U(setBits.W))
     val tag_s3       = RegInit(0.U(tagBits.W))
+    val updateDir_s3 = RegInit(false.B)
     val snpHitReq_s3 = RegInit(false.B)
 
     val arbTaskSnoop_dup_s1 = WireInit(0.U.asTypeOf(Decoupled(new TaskBundle)))
     val taskSnoop_s1        = io.taskSnoop_s1.bits
+    val taskSinkC_s1        = io.taskSinkC_s1.bits
     val latchTempDsToDs     = enableDataECC && optParam.latchTempDsToDs
 
     // -----------------------------------------------------------------------------------------
@@ -266,9 +268,9 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     blockB_s1 := reqBlockSnpVec_forSnoop.orR || mshrBlockSnpVec_forSnoop.orR || blockB_mayReadDS || io.fromSinkC.willWriteDS_s1 || setConflict_forSnoop
 
     val noSpaceForNonDataResp = io.nonDataRespCnt >= (nrNonDataSourceDEntry - 1).U // No space for ReleaseAck to send out to SourceD
-
-    // TODO: Some snoop does not need data // This is used to meet the multi-cycle path of DataSRAM
-    blockC_s1 := noSpaceForNonDataResp || mayReadDS_s2 || willWriteDS_s2 || Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)
+    val addrConflict_forSinkC = valid_s2 && task_s2.updateDir && task_s2.set === taskSinkC_s1.set && task_s2.tag === taskSinkC_s1.tag || valid_s3 && updateDir_s3 && set_s3 === taskSinkC_s1.set && tag_s3 === taskSinkC_s1.tag
+    
+    blockC_s1 := addrConflict_forSinkC || noSpaceForNonDataResp || mayReadDS_s2 || willWriteDS_s2 || Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)
 
     /** Task priority: MSHR > CMO > SinkC > Snoop > Replay > SinkA */
     val opcodeSinkC_s1 = io.taskSinkC_s1.bits.opcode
@@ -369,6 +371,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
 
     val fireVec_s1 = VecInit(Seq(io.taskSinkA_s1.fire, io.taskSinkC_s1.fire, io.taskSnoop_s1.fire, io.taskCMO_s1.fire)).asUInt
     assert(PopCount(fireVec_s1) <= 1.U, "fireVec_s1:%b", fireVec_s1)
+    assert(!(fire_s1 && task_s1.updateDir && !task_s1.isMshrTask), "task_s1.updateDir is only valid when task_s1.isMshrTask is TRUE!")
 
     // -----------------------------------------------------------------------------------------
     // Stage 2
@@ -454,6 +457,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         channel_s3    := task_s2.channel
         set_s3        := task_s2.set
         tag_s3        := task_s2.tag
+        updateDir_s3  := task_s2.updateDir
         snpHitReq_s3  := snpHitReq_s2
     }
 
