@@ -572,6 +572,19 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         aliasOpt = Some(meta_s3.aliasOpt.getOrElse(0.U)),
         clientsOH = Mux(task_s3.param === TtoN || task_s3.param === BtoN, meta_s3.clientsOH & ~reqClientOH_s3, meta_s3.clientsOH /* Release.TtoB */ )
     )
+    assert(
+        !(dirWen_c_s3 && newMeta_c_s3.state === MixedState.I),
+        "[Release] Unexpected newMeta_c_s3 state => MixedState.I! opcode:%d param:%d set:%d/0x%x tag:%d/0x%x source:%d/0x%x meta_s3.state:%d",
+        task_s3.opcode,
+        task_s3.param,
+        task_s3.set,
+        task_s3.set,
+        task_s3.tag,
+        task_s3.tag,
+        task_s3.source,
+        task_s3.source,
+        meta_s3.state
+    )
 
     val dirWen_s3 = (!mshrAlloc_s3 && (dirWen_mshr_s3 || dirWen_a_s3 || dirWen_b_s3 || dirWen_c_s3) || mshrAlloc_lp_s3) && valid_s3
     io.dirWrite_s3.valid      := dirWen_s3
