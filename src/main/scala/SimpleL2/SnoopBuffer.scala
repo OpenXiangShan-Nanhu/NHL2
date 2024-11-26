@@ -77,14 +77,6 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
         replayTag_s4
     )
 
-    def addrConflict(set: UInt, tag: UInt): Bool = {
-        val mshrAddrConflict = VecInit(io.mshrStatus.map { s =>
-            s.valid && s.set === set && s.reqTag === tag && s.hasPendingRefill && s.gotCompResp
-        }).asUInt.orR
-
-        mshrAddrConflict
-    }
-
     buffers.zipWithIndex.zip(insertOH.asBools).foreach { case ((buf, i), en) =>
         when(en && io.taskIn.fire) {
             buf.state := SnpBufState.WAIT
@@ -101,11 +93,11 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
                     buf.state := SnpBufState.INVALID
                 }
             }
-
-            val addrConflict_all = addrConflict(buf.task.set, buf.task.tag)
+            
+            val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp }).asUInt
 
             // Update the ready signal for this buffer based on conflict checks
-            buf.ready := !addrConflict_all
+            buf.ready := !addrConflictVec.orR
         }
     }
 
