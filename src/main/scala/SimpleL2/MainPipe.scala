@@ -761,6 +761,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.snpBufReplay_s4.valid             := valid_snpbuf_s4
     io.snpBufReplay_s4.bits.shouldReplay := valid_replay_s4
     io.snpBufReplay_s4.bits.txnID        := task_s4.txnID
+    io.snpBufReplay_s4.bits.set          := task_s4.set
+    io.snpBufReplay_s4.bits.tag          := task_s4.tag
 
     io.reqBufReplay_s4_opt.foreach { reqBufReplay_s4 =>
         reqBufReplay_s4.valid             := valid_reqbuf_s4
