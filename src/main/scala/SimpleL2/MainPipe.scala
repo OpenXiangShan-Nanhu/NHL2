@@ -572,8 +572,13 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         aliasOpt = Some(meta_s3.aliasOpt.getOrElse(0.U)),
         clientsOH = Mux(task_s3.param === TtoN || task_s3.param === BtoN, meta_s3.clientsOH & ~reqClientOH_s3, meta_s3.clientsOH /* Release.TtoB */ )
     )
+
+    // Release* cannot nest ProbeAck and the MSHR does not write back directory info,
+    // so we should not update the directory info as the clientsOH of the MSHR task
+    // may be wrong due to Release* is unable to nest the MSHR in a timely manner.
+    val cancelDirWen_c_s3 = task_s3.isChannelC && task_s3.param === BtoN && (meta_s3.state === MixedState.TTC || meta_s3.state === MixedState.TTD)
     assert(
-        !(dirWen_c_s3 && newMeta_c_s3.state === MixedState.I),
+        !(dirWen_c_s3 && !cancelDirWen_c_s3 && newMeta_c_s3.state === MixedState.I),
         "[Release] Unexpected newMeta_c_s3 state => MixedState.I! opcode:%d param:%d set:%d/0x%x tag:%d/0x%x source:%d/0x%x meta_s3.state:%d",
         task_s3.opcode,
         task_s3.param,
@@ -586,7 +591,30 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         meta_s3.state
     )
 
-    val dirWen_s3 = (!mshrAlloc_s3 && (dirWen_mshr_s3 || dirWen_a_s3 || dirWen_b_s3 || dirWen_c_s3) || mshrAlloc_lp_s3) && valid_s3
+    // Here we cache the delayed info of direcoty info written by the Release*.
+    // When the MSHR task is written back to the directory, we should use the
+    // delayed info to correct the clientsOH which is wrong due to Release* is
+    // unable to nest the MSHR in a timely manner.
+    val dirWen_c_s3_dly1      = RegNext(dirWen_c_s3, false.B)
+    val dirWrSet_s3_dly1      = RegEnable(task_s3.set, dirWen_c_s3)
+    val dirWrWayOH_s3_dly1    = RegEnable(io.dirResp_s3.bits.wayOH, dirWen_c_s3)
+    val dirWrClientOH_s3_dly1 = RegEnable(newMeta_c_s3.clientsOH, dirWen_c_s3)
+
+    val dirWen_c_s3_dly2      = RegNext(dirWen_c_s3_dly1, false.B)
+    val dirWrSet_s3_dly2      = RegEnable(dirWrSet_s3_dly1, dirWen_c_s3_dly1)
+    val dirWrWayOH_s3_dly2    = RegEnable(dirWrWayOH_s3_dly1, dirWen_c_s3_dly1)
+    val dirWrClientOH_s3_dly2 = RegEnable(dirWrClientOH_s3_dly1, dirWen_c_s3_dly1)
+
+    when(task_s3.isMshrTask && task_s3.updateDir) {
+        when(dirWen_c_s3_dly1 && task_s3.set === dirWrSet_s3_dly1 && task_s3.wayOH === dirWrWayOH_s3_dly1) {
+            newMeta_mshr_s3.clientsOH := task_s3.newMetaEntry.clientsOH & dirWrClientOH_s3_dly1
+        }
+        when(dirWen_c_s3_dly2 && task_s3.set === dirWrSet_s3_dly2 && task_s3.wayOH === dirWrWayOH_s3_dly2) {
+            newMeta_mshr_s3.clientsOH := task_s3.newMetaEntry.clientsOH & dirWrClientOH_s3_dly2
+        }
+    }
+
+    val dirWen_s3 = (!mshrAlloc_s3 && (dirWen_mshr_s3 || dirWen_a_s3 || dirWen_b_s3 || dirWen_c_s3 && !cancelDirWen_c_s3) || mshrAlloc_lp_s3) && valid_s3
     io.dirWrite_s3.valid      := dirWen_s3
     io.dirWrite_s3.bits.set   := task_s3.set
     io.dirWrite_s3.bits.wayOH := Mux(!task_s3.isMshrTask && hit_s3, dirResp_s3.wayOH, task_s3.wayOH)
