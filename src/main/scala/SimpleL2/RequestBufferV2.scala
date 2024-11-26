@@ -103,7 +103,7 @@ class RequestBufferV2()(implicit p: Parameters) extends L2Module {
         }
 
         when(buf.state =/= ReqBufState.INVALID) {
-            when(io.replay_s4.fire && io.replay_s4.bits.source === buf.task.source) {
+            when(io.replay_s4.fire && Mux(enablePrefetch.B && replay_s4.isPrefetch, buf.task.set === replay_s4.set && buf.task.tag === replay_s4.tag, buf.task.source === replay_s4.source)) {
                 when(io.replay_s4.bits.shouldReplay) {
                     buf.state             := ReqBufState.WAIT
                     buf.task.isReplayTask := true.B
