@@ -95,6 +95,7 @@ class MshrStatus()(implicit p: Parameters) extends L2Bundle {
     val gotDirtyData  = Bool() // TempDS has dirty data
 
     val hasPendingRefill = Bool()
+    val gotCompResp      = Bool()
 
     val waitProbeAck = Bool() // for assertion use only
 }
@@ -1503,6 +1504,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         )
     }
     io.status.hasPendingRefill := hasPendingRefill
+    io.status.gotCompResp      := gotCompResp
     io.status.gotDirtyData     := gotDirty || probeGotDirty && isAcquireProbe || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty
 
     val addr_reqTag_debug  = Cat(io.status.reqTag, io.status.set, 0.U(6.W))

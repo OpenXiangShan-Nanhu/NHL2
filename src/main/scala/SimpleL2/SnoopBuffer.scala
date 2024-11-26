@@ -78,8 +78,8 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
     )
 
     def addrConflict(set: UInt, tag: UInt): Bool = {
-        val mshrAddrConflict = VecInit(io.mshrStatus.map { case s =>
-            s.valid && s.set === set && s.reqTag === tag && s.hasPendingRefill
+        val mshrAddrConflict = VecInit(io.mshrStatus.map { s =>
+            s.valid && s.set === set && s.reqTag === tag && s.hasPendingRefill && s.gotCompResp
         }).asUInt.orR
 
         mshrAddrConflict
