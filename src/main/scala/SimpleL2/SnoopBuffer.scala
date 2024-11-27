@@ -107,7 +107,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
     val inputMaskVec  = VecInit(inputValidVec.asBools.zipWithIndex.map { case (valid, i) => valid && buffers(i).age === maxAge }).asUInt
 
     issueArb.io.in.zipWithIndex.zip(buffers).foreach { case ((in, i), buf) =>
-        in.valid := buf.state === SnpBufState.WAIT && buf.ready && inputMaskVec(i)
+        in.valid := buf.state === SnpBufState.WAIT && buf.ready && Mux(inputMaskVec.orR, inputMaskVec(i), PriorityEncoderOH(inputValidVec)(i))
         in.bits  := buf.task
 
         when(in.fire) {
