@@ -5221,97 +5221,91 @@ local test_snoop_hit_req = env.register_test_case "test_snoop_hit_req" {
 
         tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
 
-        local function send_and_resp_request()
-            local source = 4
+        local test = function (snp_opcode, ret2src, got_dirty)
+            print(OpcodeSNP(snp_opcode), "ret2src:" .. tostring(ret2src), "got_dirty:" .. tostring(got_dirty))
+
+            local req_address = to_address(0x01, 0x01)
             env.negedge()
-                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoB, source)
-            env.posedge()
-                env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadNotSharedDirty) end)
-            env.posedge()
-                chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC_PD) -- dbID = 5
-            env.posedge()
-                env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
-        end
-
-        do
-            local clientsOH = ("0b00"):number()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, got_dirty and MixedState.BD or MixedState.BC, 0x01)
             env.negedge()
-                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TD, clientsOH)
-                write_dir(0x01, utils.uint_to_onehot(1), 0x02, MixedState.TD, clientsOH)
-                write_dir(0x01, utils.uint_to_onehot(2), 0x03, MixedState.TD, clientsOH)
-                write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TD, clientsOH)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xde1ad},
+                    {s = 256, e = 256 + 63, v = 0xbe1ef}
+                }, 512))
+            env.negedge()
+                tl_a:acquire_block(req_address, TLParam.BtoT, 4) -- source = 4
+            env.posedge()
+                env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
 
-            local req_address = to_address(0x01, 0x05)
-            send_and_resp_request() -- address is to_address(0x01, 0x05)
-            chi_txreq.ready:set(0)
-
-            env.expect_not_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
-            
-            -- env.negedge()
-            --     chi_rxsnp:snpunique(req_address, 3, 0) -- Snoop should not be stalled since WriteBackFull is not fired! (commit: b3719d099be22dc1a55394ca9c96e4dc9baf735a)
             env.negedge()
                 chi_rxsnp.ready:expect(1)
                 chi_rxsnp.bits.txnID:set(3)
                 chi_rxsnp.bits.addr:set(bit.rshift(req_address, 3), true)
-                chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
-                chi_rxsnp.bits.retToSrc:set(0)
+                chi_rxsnp.bits.opcode:set(snp_opcode)
+                chi_rxsnp.bits.retToSrc:set(ret2src)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
                 mshrs[0].io_status_reqAllowSnoop:expect(1)
-                mshrs[0].io_status_gotDirtyData:expect(1)
+                mshrs[0].io_status_gotDirtyData:expect(got_dirty and 1 or 0)
                 chi_rxsnp.ready:expect(1) -- snpHitReq
             env.negedge()
                 chi_rxsnp.valid:set(0)
-            verilua "appendTasks" {
-                function ()
-                    env.expect_happen_until(10, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.data:is_hex_str("0xdead") end)
-                    env.expect_happen_until(10, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.data:is_hex_str("0xbeef") end)
-                end,
-                function ()
-                    -- snpHitReq nested toN
-                    env.expect_happen_until(10, function () return mshrs[0].io_nested_snoop_toN:is(1) and mshrs[0].snpMatchReqAddr:is(1) end)
-                    env.negedge()
-                    env.expect_not_happen_until(10, function () return mshrs[0].io_nested_snoop_toN:is(1) and mshrs[0].snpMatchReqAddr:is(1) end)
-                end,
-                function ()
-                    env.expect_not_happen_until(10, function() return mp.valid_s4:is(1) end)
-                end,
-                check_read_again = function()
-                    env.expect_happen_until(10, function() return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadNotSharedDirty) end)
+
+            if ret2src then
+                env.expect_happen_until(10, function () return reqArb.io_tempDsRead_s1_valid:is(1) and reqArb.io_tempDsRead_s1_bits_idx:is(0) end)
+            else
+                if not got_dirty then
+                    fork {
+                        function ()
+                            env.expect_not_happen_until(10, function () return reqArb.io_tempDsRead_s1_valid:is(1) end)
+                        end
+                    } 
                 end
-            }
-            env.expect_happen_until(10, function() return mp.valid_s3:is(1) and mp.task_s3_snpHitReq:is(1) end)
-                mp.task_s3_snpHitMshrId:expect(0)
-                mp.task_s3_readTempDs:expect(1)
-                mshrs[0].state_w_compdat_first:expect(1)
-                mshrs[0].state_w_comp:expect(1)
-                mshrs[0].state_w_compdbid:expect(0)
-            env.negedge()
-                mp.valid_s4:expect(0)
-                mp.valid_snpresp_s4:expect(0)
-                mp.valid_snpdata_s4:expect(0)
+            end
 
-            chi_txreq.ready:set(1)
-            env.negedge(10)
+            local task_s2 = mp:with_prefix("task_s2_")
+            env.expect_happen_until(10, function () return task_s2.channel:is(0x02) and task_s2.isCHIOpcode:is(1) and task_s2.isMshrTask:is(0) and task_s2.snpHitReq:is(1) and task_s2.snpGotDirty:is(got_dirty and 1 or 0) end)
 
-            chi_rxrsp:comp_dbidresp(0, 3)
-            env.expect_happen_until(10, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) end)
-            env.negedge()
-            env.expect_happen_until(10, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CopyBackWrData) end)
-            
+
+            local exp_resp = CHIResp.I
+            if snp_opcode == OpcodeSNP.SnpNotSharedDirty and got_dirty then
+                exp_resp = CHIResp.SC_PD
+            elseif snp_opcode == OpcodeSNP.SnpNotSharedDirty and not got_dirty then
+                exp_resp = CHIResp.SC
+            elseif snp_opcode == OpcodeSNP.SnpUnique and got_dirty then
+                exp_resp = CHIResp.I_PD
+            elseif snp_opcode == OpcodeSNP.SnpUnique and not got_dirty then
+                exp_resp = CHIResp.I
+            end
+
+            if ret2src or got_dirty then
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.txnID:is(3) and chi_txdat.bits.data:is_hex_str("0xde1ad") end)
+                env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(2) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.txnID:is(3) and chi_txdat.bits.data:is_hex_str("0xbe1ef") end)
+            else
+                env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.resp:is(exp_resp) and chi_txrsp.bits.txnID:is(3) end)
+            end
+
             env.posedge()
-                chi_rxdat:compdat(0, "0x1dead1", "0x1beef1", 5, CHIResp.UC) -- dbID = 5
+                chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC_PD) -- dbID = 5
             env.posedge()
-                env.expect_happen_until(10, function() return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
+                env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
             
-            env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:get()[1] == 0x1dead1  end)
-            env.expect_happen_until(10, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:get()[1] == 0x1beef1  end)
-            env.negedge()
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.data:is_hex_str("0xdead") end)
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.data:is_hex_str("0xbeef") end)
             tl_e:grantack(0)
 
-            env.negedge(10)
+            env.negedge(100)
             mshrs[0].io_status_valid:expect(0)
         end
+        test(OpcodeSNP.SnpUnique, true, false)
+        test(OpcodeSNP.SnpUnique, true, true)
+        test(OpcodeSNP.SnpUnique, false, false)
+        test(OpcodeSNP.SnpUnique, false, true)
+
+        test(OpcodeSNP.SnpNotSharedDirty, true, false)
+        test(OpcodeSNP.SnpNotSharedDirty, true, true)
+        test(OpcodeSNP.SnpNotSharedDirty, false, false)
+        test(OpcodeSNP.SnpNotSharedDirty, false, true)
 
         env.posedge(100)
     end
@@ -7974,7 +7968,7 @@ verilua "mainTask" { function ()
     test_release_nest_get()
     test_cancel_sinkC_respMap()
     test_sinkA_alias()
-    -- test_snoop_hit_req()
+    test_snoop_hit_req()
     -- test_mshr_realloc()
     test_nested_cancel_req()
     test_reorder_rxdat()

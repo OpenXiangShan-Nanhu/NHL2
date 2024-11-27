@@ -129,7 +129,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         txdat_s2.bits.txnID   := task_s2.txnID
         txdat_s2.bits.homeNID := task_s2.srcID
         txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
-        txdat_s2.bits.resp    := Mux(task_s2.snpHitReq && task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), task_s2.resp)
+        txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
         txdat_s2.bits.be      := Fill(beatBytes, 1.U)
         txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
     } else {
@@ -139,7 +139,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.txdat_s2.bits.txnID   := task_s2.txnID
         io.txdat_s2.bits.homeNID := task_s2.srcID
         io.txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
-        io.txdat_s2.bits.resp    := Mux(task_s2.snpHitReq && task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), task_s2.resp)
+        io.txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
         io.txdat_s2.bits.be      := Fill(beatBytes, 1.U)
         io.txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
     }
