@@ -77,6 +77,7 @@ case class L2Param(
     require(dataBits == 64 * 8)
     require(nrSlice >= 1)
     require(nrMSHR >= 8)
+    require(nrNonDataSourceDEntry >= 2)
     require(replacementPolicy == "random" || replacementPolicy == "plru" || replacementPolicy == "lru")
     require(dataEccCode == "none" || dataEccCode == "identity" || dataEccCode == "parity" || dataEccCode == "sec" || dataEccCode == "secded")
 

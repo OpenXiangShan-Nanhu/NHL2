@@ -93,7 +93,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
                     buf.state := SnpBufState.INVALID
                 }
             }
-            
+
             val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp }).asUInt
 
             // Update the ready signal for this buffer based on conflict checks

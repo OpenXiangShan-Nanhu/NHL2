@@ -265,9 +265,10 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
 
     blockB_s1 := reqBlockSnpVec_forSnoop.orR || mshrBlockSnpVec_forSnoop.orR || blockB_mayReadDS || io.fromSinkC.willWriteDS_s1 || setConflict_forSnoop
 
-    val noSpaceForNonDataResp = io.nonDataRespCnt >= (nrNonDataSourceDEntry - 1).U // No space for ReleaseAck to send out to SourceD
+    val needNonDataResp_s2    = valid_s2 && Mux(task_s2.isMshrTask, !task_s2.isCHIOpcode && !task_s2.isReplTask && (task_s2.opcode === Grant || task_s2.opcode === HintAck), task_s2.isChannelC)
+    val noSpaceForNonDataResp = io.nonDataRespCnt >= Mux(needNonDataResp_s2, (nrNonDataSourceDEntry - 2).U, (nrNonDataSourceDEntry - 1).U) // No space for ReleaseAck to send out to SourceD
     val addrConflict_forSinkC = valid_s2 && task_s2.updateDir && task_s2.set === taskSinkC_s1.set && task_s2.tag === taskSinkC_s1.tag || valid_s3 && updateDir_s3 && set_s3 === taskSinkC_s1.set && tag_s3 === taskSinkC_s1.tag
-    
+
     blockC_s1 := addrConflict_forSinkC || noSpaceForNonDataResp || mayReadDS_s2 || willWriteDS_s2 || Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)
 
     /** Task priority: MSHR > CMO > SinkC > Snoop > Replay > SinkA */
