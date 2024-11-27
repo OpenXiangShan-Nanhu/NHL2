@@ -114,7 +114,7 @@ class SourceD()(implicit p: Parameters) extends L2Module {
       * the non-data response will be chosen to be sent out.
       */
     val stallCnt = RegInit(0.U(8.W))
-    when(stallCnt >= 255.U && nonDataRespQueue.io.deq.valid && first) { // TODO: parameterize
+    when(stallCnt >= 255.U && nonDataRespQueue.io.deq.valid && !io.d.fire && first) { // TODO: parameterize
         select   := NonDataReq
         stallCnt := 0.U
     }.elsewhen(select === HasDataReq && io.d.valid && !io.d.ready) {
