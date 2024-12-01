@@ -51,6 +51,20 @@ local txdat = slice.txdat
 local sinkC = slice.sinkC
 local reqArb = slice.reqArb
 local rxdat = slice.rxdat
+local amoDataBufOpt = slice.amoDataBufOpt
+local lowPowerCtrl = slice.lowPowerCtrl
+
+local low_power_req = dut:with_prefix("io_lowPowerOpt_req_")
+local low_power_resp = dut:with_prefix("io_lowPowerOpt_resp_")
+local low_power_state = lowPowerCtrl.powerState
+
+local PowerState = utils.enum_define {
+    name = "PowerState",
+    ACTIVE = 0,
+    TRANSITION = 1,
+    SHUTDOWN = 2,
+    RETENTION = 3
+}
 
 local mshrs = {}
 for i = 0, 15 do
@@ -7272,21 +7286,38 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             mp.io_dirWrite_s3_bits_meta_state:expect(MixedState.I)
         end
 
-        local function wait_for_lowPowerShutdown_ack()
-            -- wait for io_lowPowerOpt_shutdown_ack
-            env.expect_happen_until(2000, function () return dut.io_lowPowerOpt_shutdown_ack:is(1) end)
-
-            dut.io_lowPowerOpt_shutdown_req:set(0)
-            env.negedge(2)
-            dut.io_lowPowerOpt_shutdown_ack:expect(0)
+        local function wait_for_low_power_resp()
+            env.expect_happen_until(2000, function () return low_power_resp.valid:is(1) end)
+            env.negedge()
+                low_power_resp.valid:expect(0)
         end
 
+        -- OFF -> ON
+        local function wakeup_from_shutdown()
+            low_power_state:expect(PowerState.SHUTDOWN)
+
+            env.negedge()
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(2) -- ON = 2
+            env.negedge()
+                low_power_req.valid:set(0)
+
+            env.expect_happen_until(50, function () return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) end)
+        end
+
+        -- ON -> OFF
         do
+            -- dirty state
             env.negedge()
                 write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TD)
 
+            dut.io_lowPowerOpt_idle:expect(1)
+
             env.negedge()
-                dut.io_lowPowerOpt_shutdown_req:set(1)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(0) -- OFF = 0
+            env.negedge()
+                low_power_req.valid:set(0)
 
             expect_clear_dir()
 
@@ -7297,15 +7328,24 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             env.negedge(10)
                 mshrs[0].io_status_valid:expect(0)
 
-            wait_for_lowPowerShutdown_ack()
+            wait_for_low_power_resp()
+            low_power_state:expect(PowerState.SHUTDOWN)
+
+            wakeup_from_shutdown()
         end
 
+
         local test = function(state)
+            -- clean state
+            print("clean state =>", MixedState(state))
             env.negedge()
-                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TC)
+                write_dir(0x01, ("0b0001"):number(), 0x05, state)
 
             env.negedge()
-                dut.io_lowPowerOpt_shutdown_req:set(1)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(0) -- OFF = 0
+            env.negedge()
+                low_power_req.valid:set(0)
 
             expect_clear_dir()
 
@@ -7314,7 +7354,10 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             env.negedge(10)
                 mshrs[0].io_status_valid:expect(0)
 
-            wait_for_lowPowerShutdown_ack()
+            wait_for_low_power_resp()
+            low_power_state:expect(PowerState.SHUTDOWN)
+
+            wakeup_from_shutdown()
         end
         test(MixedState.TC)
         test(MixedState.BC)
@@ -7324,11 +7367,17 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
                 write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TTC, ("0b01"):number())
 
             env.negedge()
-                dut.io_lowPowerOpt_shutdown_req:set(1)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(0) -- OFF = 0
+            env.negedge()
+                low_power_req.valid:set(0)
 
             expect_clear_dir()
 
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.address:is(to_address(0x01, 0x05)) and tl_b.bits.param:is(TLParam.toN) end)
+
+            dut.io_lowPowerOpt_idle:expect(0)
+
             if not probeack_dirty then
                 tl_c:probeack(to_address(0x01, 0x05), TLParam.TtoN, 0)
             else
@@ -7347,7 +7396,10 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             env.negedge(10)
                 mshrs[0].io_status_valid:expect(0)
 
-            wait_for_lowPowerShutdown_ack()
+            wait_for_low_power_resp()
+            low_power_state:expect(PowerState.SHUTDOWN)
+
+            wakeup_from_shutdown()
         end
         test(false)
         test(true)
@@ -7361,7 +7413,10 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             end
 
             env.negedge()
-                dut.io_lowPowerOpt_shutdown_req:set(1)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(0) -- OFF = 0
+            env.negedge()
+                low_power_req.valid:set(0)
             
             fork {
                 function ()
@@ -7377,9 +7432,9 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
                 end
             }
             
-            env.posedge(2000)
+            env.expect_not_happen_until(2000, function () return low_power_req.valid:is(1) end)
+            low_power_state:expect(PowerState.TRANSITION)
 
-            dut.io_lowPowerOpt_shutdown_req:set(0)
             env.dut_reset()
         end
 
@@ -7394,6 +7449,7 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
 
         tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
 
+        -- ON -> RET
         do
             env.negedge()
                 write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.BC)
@@ -7404,10 +7460,16 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
             mshrs[0].io_status_valid:expect(1)
 
             env.negedge()
-                slice.lowPowerCtrl.powerState:expect(0) -- PowerState.ACTIVE
-                dut.io_lowPowerOpt_retention_req:set(1)
-                dut.io_lowPowerOpt_retention_rdy:expect(1)
-            env.expect_not_happen_until(1000, function () return dut.io_lowPowerOpt_retention_ack:is(1) end) -- retention ack should be FALSE since there exist a MSHR which is still valid
+                low_power_state:expect(PowerState.ACTIVE)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(1) -- RET = 1
+            env.negedge()
+                low_power_req.valid:set(0)
+                low_power_resp.valid:expect(1)
+                low_power_resp.bits:expect(0) -- L2Cache cannot deal with retention request
+            env.negedge()
+                low_power_state:expect(PowerState.ACTIVE)
+                low_power_resp.valid:expect(0)
             
             chi_rxrsp:comp(0, 0, CHIResp.UC)
             env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.Grant) and tl_d.bits.source:is(1) end)
@@ -7418,23 +7480,22 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
                 mshrs[i].io_status_valid:expect(0)
             end
 
-            -- when all the MSHRs are freed, lowPowerCtrl should send retention ack
-            env.expect_happen_until(100, function () return dut.io_lowPowerOpt_retention_ack:is(1) end)
-                dut.io_lowPowerOpt_retention_rdy:expect(1)
-                slice.lowPowerCtrl.powerState:expect(1) -- PowerState.TRANSITION
             env.negedge()
-                slice.lowPowerCtrl.powerState:expect(3) -- PowerState.RETENTION
+                low_power_state:expect(PowerState.ACTIVE)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(1) -- RET = 1
+            env.negedge()
+                low_power_req.valid:set(0)
+                low_power_resp.valid:expect(1)
+                low_power_resp.bits:expect(1)
+            env.negedge()
+                low_power_state:expect(PowerState.RETENTION)
+            env.negedge(100)
         end
 
         -- test snoop wakeup retention
         do
-            fork {
-                function ()
-                    env.expect_happen_until(10, function () return dut.io_lowPowerOpt_retention_rdy:is(0) end)
-                    env.negedge()
-                        dut.io_lowPowerOpt_retention_req:set(0)
-                end
-            }
+            dut.io_lowPowerOpt_idle:expect(1)
 
             env.negedge()
                 chi_rxsnp.ready:expect(0)
@@ -7449,12 +7510,31 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
 
             env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.opcode:is(TLOpcodeB.Probe) and tl_b.bits.param:is(TLParam.toN) end)
             tl_c:probeack(to_address(0x01, 0x05), TLParam.TtoN, 0)
+
+            dut.io_lowPowerOpt_idle:expect(0)
+
             env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
             env.negedge()
                 mshrs[0].io_status_valid:expect(0)
 
-            dut.io_lowPowerOpt_retention_rdy:expect(1)
-            dut.io_lowPowerOpt_retention_req:set(0)
+            env.negedge(10)
+                slice.lowPowerCtrl.powerState:expect(PowerState.RETENTION) -- PowerState.RETENTION
+        end
+
+        -- RET -> ON
+        do
+            env.negedge()
+                low_power_state:expect(PowerState.RETENTION)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(2) -- ON = 2
+            env.negedge()
+                low_power_req.valid:set(0)
+            env.negedge(10)
+            
+            env.expect_happen_until(10, function () return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) end)
+            env.negedge()
+                low_power_state:expect(PowerState.ACTIVE)
+            env.expect_not_happen_until(100, function () return low_power_state:is(PowerState.RETENTION) end)
         end
 
         env.posedge(100)

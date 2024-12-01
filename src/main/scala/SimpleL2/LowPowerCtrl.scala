@@ -9,10 +9,10 @@ import SimpleL2.Bundles._
 object PowerState {
     val width = 2
 
-    val ACTIVE     = "b00".U(width.W) // stable
-    val TRANSITION = "b01".U(width.W) // unstable
-    val SHUTDOWN   = "b10".U(width.W) // stable
-    val RETENTION  = "b11".U(width.W) // stable
+    val ACTIVE     = "b00".U(width.W) // 0, stable
+    val TRANSITION = "b01".U(width.W) // 1, unstable
+    val SHUTDOWN   = "b10".U(width.W) // 2, stable
+    val RETENTION  = "b11".U(width.W) // 3, stable
 }
 
 class LowPowerCtrl(implicit p: Parameters) extends L2Module {
@@ -26,76 +26,146 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
         /** Evict request sent to [[RequestArbiter]] */
         val toReqArb = DecoupledIO(new LowPowerToReqArb)
 
-        val rxsnpValid      = Input(Bool())
-        val retentionWakeup = Input(Bool()) // Only snoop request can wakeup retention
-        val powerState      = Output(UInt(PowerState.width.W))
+        val rxsnpValid       = Input(Bool())
+        val retentionWakeup  = Input(Bool()) // Only snoop request can wakeup retention
+        val sramWakeupFinish = Input(Bool())
+        val powerState       = Output(UInt(PowerState.width.W))
+        val lastPowerState   = Output(UInt(PowerState.width.W))
     })
 
-    assert(!(io.lowPower.shutdown.req && io.lowPower.retention.req), "Only shutdown or retention can be active at the same time!")
+    val SUCCESS = true.B
+    val FAIL    = false.B
 
-    val shutdown       = io.lowPower.shutdown
-    val retention      = io.lowPower.retention
-    val powerState     = RegInit(PowerState.ACTIVE)
-    val nextPowerState = WireInit(PowerState.ACTIVE)
+    val mpHasRequest = VecInit(io.mpStatus_s123.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR || VecInit(io.mpStatus_s4567.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR
+    val mshrValidVec = VecInit(io.mshrStatus.map(_.valid)).asUInt
+    val mshrValidCnt = PopCount(mshrValidVec)
+    val mshrAllFree  = !mshrValidVec.orR
+
+    val retentionWakeup_dly1 = RegNext(io.retentionWakeup, false.B)
+    val retentionWakeup_dly2 = RegNext(retentionWakeup_dly1, false.B)
+    val retentionWakeup_dly3 = RegNext(retentionWakeup_dly2, false.B)
+    val retentionWakeupValid = io.retentionWakeup || retentionWakeup_dly1 || retentionWakeup_dly2 || retentionWakeup_dly3
+
+    val powerState      = RegInit(PowerState.ACTIVE)
+    val lastStableState = RegInit(PowerState.ACTIVE)
+    val nextStableState = RegInit(PowerState.ACTIVE)
+    val nextPowerState  = WireInit(PowerState.ACTIVE)
+
+    val respState     = RegInit(SUCCESS)
+    val wakeupBySnoop = RegInit(false.B)
+    val mpGetSnoop    = RegInit(false.B)
+    val evictFinish   = WireInit(false.B)
+    val timer         = RegInit(0.U(log2Up(sramShutdownWakeupCycles + 1).W))
+
+    dontTouch(powerState)
+    dontTouch(nextPowerState)
 
     /** Power state transition FSM */
     nextPowerState := powerState
 
     switch(powerState) {
         is(PowerState.ACTIVE) {
-            when((retention.req ^ retention.ack) || (shutdown.req ^ shutdown.ack)) {
-                nextPowerState := PowerState.TRANSITION
+            when(io.lowPower.isRetention) {
+                when(mshrAllFree && !mpHasRequest) {
+                    nextPowerState  := PowerState.RETENTION
+                    lastStableState := PowerState.ACTIVE
+                    nextStableState := PowerState.RETENTION
+                    respState       := SUCCESS
+                }.otherwise {
+                    respState := FAIL
+                }
+            }.elsewhen(io.lowPower.isOff) {
+                nextPowerState  := PowerState.TRANSITION
+                lastStableState := PowerState.ACTIVE
+                nextStableState := PowerState.SHUTDOWN
+            }.elsewhen(lastStableState === PowerState.RETENTION && wakeupBySnoop) {
+                when(!mpGetSnoop) {
+                    mpGetSnoop := io.mpStatus_s123.stage2.valid // TODO: Check if this request is a snoop request
+                }.otherwise {
+                    when(mshrAllFree && !mpHasRequest) {
+                        nextPowerState  := PowerState.RETENTION
+                        lastStableState := PowerState.ACTIVE
+                        nextStableState := PowerState.RETENTION
+                    }
+                }
             }
         }
-        is(PowerState.TRANSITION) {
-            when(retention.req && retention.ack) {
-                // ACTIVE -> TRANSITION -> RETENTION
-                nextPowerState := PowerState.RETENTION
-            }.elsewhen(shutdown.req && shutdown.ack) {
-                // ACTIVE -> TRANSITION -> SHUTDOWN
-                nextPowerState := PowerState.SHUTDOWN
-            }.elsewhen(!retention.req && !retention.ack) {
-                // RETENTION -> TRANSITION -> ACTIVE
-                nextPowerState := PowerState.ACTIVE
-            }
 
-            assert(!(shutdown.ack && retention.ack))
-        }
         is(PowerState.SHUTDOWN) {
-            // do nothing for now
-        }
-        is(PowerState.RETENTION) {
-            when(retention.req ^ retention.ack) {
-                nextPowerState := PowerState.TRANSITION
+            when(io.lowPower.isOn) {
+                nextPowerState  := PowerState.TRANSITION
+                lastStableState := PowerState.SHUTDOWN
+                nextStableState := PowerState.ACTIVE
             }
-            assert(!shutdown.req, "retention can not be active at the same time with shutdown")
+            assert(!io.lowPower.isRetention, "Power mode cannot transfer from SHUTDOWN to RETENTION")
+        }
+
+        is(PowerState.RETENTION) {
+            when(io.lowPower.isOn) {
+                nextPowerState  := PowerState.TRANSITION
+                lastStableState := PowerState.RETENTION
+                nextStableState := PowerState.ACTIVE
+                wakeupBySnoop   := false.B
+            }.elsewhen(io.retentionWakeup) {
+                nextPowerState  := PowerState.TRANSITION
+                lastStableState := PowerState.RETENTION
+                nextStableState := PowerState.ACTIVE
+                wakeupBySnoop   := true.B
+            }
+            assert(!io.lowPower.isOff && !io.lowPower.isRetention, "Power mode cannot transfer from RETENTION to OFF/RETENTION")
+        }
+
+        is(PowerState.TRANSITION) {
+            when(lastStableState === PowerState.RETENTION) {
+                when(io.sramWakeupFinish) {
+                    nextPowerState := PowerState.ACTIVE
+                    assert(nextPowerState === nextStableState)
+                }
+            }.elsewhen(lastStableState === PowerState.ACTIVE) {
+                when(evictFinish) {
+                    nextPowerState := PowerState.SHUTDOWN
+                    assert(nextPowerState === nextStableState)
+                }
+            }.elsewhen(lastStableState === PowerState.SHUTDOWN) {
+                when(timer === sramShutdownWakeupCycles.U) {
+                    timer          := 0.U
+                    nextPowerState := PowerState.ACTIVE
+                    assert(nextPowerState === nextStableState)
+                }.otherwise {
+                    timer := timer + 1.U
+                }
+            }
+            assert(!io.lowPower.req.fire, "Power mode is transiting...")
         }
     }
 
-    powerState    := nextPowerState
-    io.powerState := powerState
+    powerState        := nextPowerState
+    io.powerState     := powerState
+    io.lastPowerState := lastStableState
+    io.lowPower.idle  := mshrAllFree && !mpHasRequest // TODO: Check for SourceD and TXDAT
 
-    dontTouch(powerState)
-    dontTouch(nextPowerState)
-
-    val lowPowerShutdownReq  = RegNext(io.lowPower.shutdown.req, false.B)
-    val lowPowerShutdownAck  = RegInit(false.B)
-    val lowPowerRetentionReq = RegNext(io.lowPower.retention.req, false.B)
-    val lowPowerRetentionAck = RegInit(false.B)
+    // Send lower power response according to the current state of the l2cache
+    val reqValid_s1 = io.lowPower.req.fire
+    val reqIsOff_s2 = RegEnable(io.lowPower.isOff, reqValid_s1) // Send response for the OFF request when the eviction is finished
+    val reqIsOn_s2  = RegEnable(io.lowPower.isOn, reqValid_s1)
+    val reqValid_s2 = RegNext(reqValid_s1, false.B)             // powerState === PowerState.TRANSITION && lastStableState === PowerState.SHUTDOWN && nextPowerState === PowerState.ACTIVE
+    io.lowPower.resp.valid := Mux(
+        reqIsOff_s2,
+        evictFinish,
+        Mux(
+            reqIsOn_s2 && powerState === PowerState.TRANSITION,
+            nextPowerState === PowerState.ACTIVE,
+            reqValid_s2
+        )
+    )
+    io.lowPower.resp.bits := Mux(reqIsOff_s2 || reqIsOff_s2, SUCCESS, respState)
 
     val MSHR_FREE_THRESHOLD = lowPowerMSHRFreeThreshold
     val startTimer          = RegInit(0.U(log2Up(MSHR_FREE_THRESHOLD + 1).W))
     val enableEvict         = RegInit(false.B)
-    def mshrIsEmpty = enableEvict
 
-    val mshrValidVec = VecInit(io.mshrStatus.map(_.valid)).asUInt
-    val mshrValidCnt = PopCount(mshrValidVec)
-    val mshrAllFree  = !mshrValidVec.orR
-
-    when((lowPowerShutdownReq || lowPowerRetentionReq) && mshrAllFree && startTimer < MSHR_FREE_THRESHOLD.U) {
+    when(lastStableState === PowerState.ACTIVE && powerState === PowerState.TRANSITION && nextStableState === PowerState.SHUTDOWN && mshrAllFree && startTimer < MSHR_FREE_THRESHOLD.U) {
         startTimer := startTimer + 1.U
-    }.elsewhen(!lowPowerShutdownReq && !lowPowerRetentionReq) {
-        startTimer := 0.U
     }
 
     /** When [[MSHR]]s are all free for a long time, enable eviction */
@@ -106,12 +176,12 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
     }
 
     /** Iterate over all sets and ways to evict every valid cacheline */
-    val setCnt      = RegInit(0.U(setBits.W))
-    val wayCnt      = RegInit(0.U(wayBits.W))
-    val evictFinish = setCnt >= (sets - 1).U && wayCnt >= (ways - 1).U
-    val mshrIsOk    = mshrValidCnt <= (nrMSHR / 2).U // Only part of MSHRs are used for eviction, this will reduce unnecessary backpressure signals from MSHR
+    val setCnt   = RegInit(0.U(setBits.W))
+    val wayCnt   = RegInit(0.U(wayBits.W))
+    val mshrIsOk = mshrValidCnt <= (nrMSHR / 2).U // Only part of MSHRs are used for eviction, this will reduce unnecessary backpressure signals from MSHR
+    evictFinish := setCnt >= (sets - 1).U && wayCnt >= (ways - 1).U
 
-    io.toReqArb.valid       := lowPowerShutdownReq && enableEvict && mshrIsOk && !evictFinish
+    io.toReqArb.valid       := enableEvict && mshrIsOk && !evictFinish
     io.toReqArb.bits.set    := setCnt
     io.toReqArb.bits.wayIdx := wayCnt
 
@@ -124,30 +194,9 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
         }
     }
 
-    when(!lowPowerShutdownReq && RegNext(lowPowerShutdownReq)) {
-        setCnt := 0.U
-        wayCnt := 0.U
+    when(io.lowPower.isOff || evictFinish) {
+        setCnt     := 0.U
+        wayCnt     := 0.U
+        startTimer := 0.U
     }
-
-    lowPowerShutdownAck  := evictFinish && lowPowerShutdownReq
-    lowPowerRetentionAck := mshrIsEmpty && lowPowerRetentionReq
-
-    io.lowPower.shutdown.ack  := lowPowerShutdownAck
-    io.lowPower.retention.ack := lowPowerRetentionAck
-
-    val mpHasRequest         = VecInit(io.mpStatus_s123.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR || VecInit(io.mpStatus_s4567.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR
-    val retentionWakeup_dly1 = RegNext(io.retentionWakeup, false.B)
-    val retentionWakeup_dly2 = RegNext(retentionWakeup_dly1, false.B)
-    val retentionWakeup_dly3 = RegNext(retentionWakeup_dly2, false.B)
-    val retentionWakeupValid = io.retentionWakeup || retentionWakeup_dly1 || retentionWakeup_dly2 || retentionWakeup_dly3
-
-    val lastPowerStateIsRetention = RegInit(false.B)
-
-    when(powerState === PowerState.RETENTION && nextPowerState === PowerState.TRANSITION) {
-        lastPowerStateIsRetention := true.B
-    }.elsewhen(powerState === PowerState.ACTIVE && nextPowerState === PowerState.TRANSITION) {
-        lastPowerStateIsRetention := false.B
-    }
-
-    io.lowPower.retention.rdy := !retentionWakeupValid && Mux(lastPowerStateIsRetention, mshrAllFree && !mpHasRequest && !io.rxsnpValid, true.B)
 }

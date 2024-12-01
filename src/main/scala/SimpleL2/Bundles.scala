@@ -96,39 +96,24 @@ class TLRespBundle(params: TLBundleParameters)(implicit p: Parameters) extends L
     val last   = Bool()
 }
 
-/*
-    rdy:  Suggest power controller that L2 is preferring to retain.(Only works for retention)
-    req:  Actual retention request.
-    ack:  L2 accepts to change its mode.
-    nack: L2 refuses to change its mode.
-
-    Dynamic power mode transition, power controller issue request according rdy of devices
-    fsm:      ---A--|--T--|--R--|--T--|------A-----|-T-|------A------|-T-|---R----
-    rdy:      ___/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\_____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-    req:      _______/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\__________________/⎺⎺⎺⎺⎺⎺⎺⎺\_________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-    ack:      _____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\__________________________________/⎺⎺⎺⎺⎺⎺⎺⎺
-    nack:     _________________________________________/⎺⎺⎺⎺⎺⎺⎺⎺\_________________
-    pwr_mode: -----On------|-----Ret-----|--------------On---------------|--Ret---
-
-    Static power mode transition, power controller issue request according to software firmware
-    fsm:      ---A--|--T--|--R--|--T--|------A-----|-T-|------A------|-T-|---R----
-    req:      _______/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\__________________/⎺⎺⎺⎺⎺⎺⎺\_________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺
-    ack:      _____________/⎺⎺⎺⎺⎺⎺⎺⎺⎺⎺\__________________________________/⎺⎺⎺⎺⎺⎺⎺⎺
-    nack:     _________________________________________/⎺⎺⎺⎺⎺⎺⎺\__________________
-    pwr_mode: -----On------|-----Ret-----|--------------On---------------|--Ret---
- */
-
 class LowPowerIO(implicit p: Parameters) extends L2Bundle {
-    val shutdown = new Bundle {
-        val req = Input(Bool())
-        val ack = Output(Bool()) // set to HIGH when the low power operation is done
-    }
+    val req  = Flipped(ValidIO(UInt(2.W))) // 0: OFF, 1: RET, 2: ON
+    val resp = ValidIO(Bool())             // 0: ERR, 1: OK
+    val idle = Output(Bool())              // Whether the L2 is idle(no transactions are being processed)
 
-    val retention = new Bundle {
-        val req = Input(Bool())
-        val ack = Output(Bool())
-        val rdy = Output(Bool()) // set to HIGH when the L2Cache can enter retention mode
-    }
+    // Power modes:
+    // Only allow 4 types of power mode transitions, which is:
+    // (1) ON  -> OFF
+    // (2) OFF -> ON
+    // (3) ON  -> RET
+    // (4) RET -> ON
+    def OFF = 0.U(2.W)
+    def RETENTION = 1.U(2.W)
+    def ON = 2.U(2.W)
+
+    def isRetention = req.valid && req.bits === RETENTION
+    def isOn = req.valid && req.bits === ON
+    def isOff = req.valid && req.bits === OFF
 }
 
 class LowPowerToReqArb(implicit p: Parameters) extends L2Bundle {

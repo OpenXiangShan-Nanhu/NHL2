@@ -68,9 +68,12 @@ case class L2Param(
     dataEccCode: String = "secded",       // Option: "none", "identity", "parity", "sec", "secded"
     useDiplomacy: Boolean = false,        // If use diplomacy, EdgeInKey should be passed in
     alwaysWriteBackFull: Boolean = false, // If true, replace operation will always trigger WriteBackFull no matter whether the cacheline is clean or dirty
+
+    // Low Power
     hasLowPowerInterface: Boolean = false,
     lowPowerMSHRFreeThreshold: Int = 500,
-    sramRetentionWakeupCycles: Int = 100 // Cycles to wait for SRAM retention wakeup
+    sramRetentionWakeupCycles: Int = 10, // Cycles to wait for SRAM wakeup from retention
+    sramShutdownWakeupCycles: Int = 32,  // Cycles to wait for SRAM wakeup from shutdown
 ) {
     require(isPow2(ways))
     require(isPow2(sets))
@@ -133,6 +136,7 @@ trait HasL2Param {
     val hasLowPowerInterface      = l2param.hasLowPowerInterface
     val lowPowerMSHRFreeThreshold = l2param.lowPowerMSHRFreeThreshold
     val sramRetentionWakeupCycles = l2param.sramRetentionWakeupCycles
+    val sramShutdownWakeupCycles  = l2param.sramShutdownWakeupCycles
 
     /** 
      * ECC parameters 

@@ -25,7 +25,8 @@ class RXSNP()(implicit p: Parameters) extends L2Module {
     println(s"[${this.getClass().toString()}] rxsnpHasLatch:${optParam.rxsnpHasLatch}")
 
     if (!optParam.rxsnpHasLatch) {
-        val allowReq = Mux(hasLowPowerInterface.B, io.sramWakeupFinishOpt.getOrElse(true.B) && io.powerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE, true.B)
+        val lowPowerState = io.powerStateOpt.getOrElse(PowerState.ACTIVE)
+        val allowReq      = Mux(hasLowPowerInterface.B, io.sramWakeupFinishOpt.getOrElse(true.B) && lowPowerState === PowerState.ACTIVE, true.B)
         io.rxsnp.ready           := io.task.ready && allowReq
         io.task.valid            := io.rxsnp.valid && allowReq
         io.task.bits             := DontCare

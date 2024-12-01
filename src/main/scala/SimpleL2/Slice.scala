@@ -261,22 +261,20 @@ class Slice()(implicit p: Parameters) extends L2Module {
         lowPowerCtrl.io.mpStatus_s123  <> reqArb.io.status
         lowPowerCtrl.io.mpStatus_s4567 <> mainPipe.io.status
 
-        val retentionWakeupTimer = RegInit((sramRetentionWakeupCycles).U(log2Up(sramRetentionWakeupCycles + 1).W)) // Wait for SRAM retention wakeup
-        when(retentionWakeupTimer < sramRetentionWakeupCycles.U && powerState =/= PowerState.RETENTION) {
-            retentionWakeupTimer := retentionWakeupTimer + 1.U
-            assert(!io.chi.rxsnp.ready)
-            assert(io.chi.rxsnp.valid)
-        }.elsewhen(sramRetentionWakeupCycles.U >= retentionWakeupTimer && powerState === PowerState.RETENTION) {
-            retentionWakeupTimer := 0.U
+        val sramWakeupTimer  = RegInit((sramRetentionWakeupCycles).U(log2Up(sramRetentionWakeupCycles + 1).W)) // Wait for SRAM retention wakeup
+        val sramWakeupFinish = sramWakeupTimer === sramRetentionWakeupCycles.U
+        when(sramWakeupTimer < sramRetentionWakeupCycles.U && powerState =/= PowerState.RETENTION) {
+            sramWakeupTimer := sramWakeupTimer + 1.U
+        }.elsewhen(sramRetentionWakeupCycles.U >= sramWakeupTimer && (powerState === PowerState.RETENTION || powerState === PowerState.SHUTDOWN)) {
+            sramWakeupTimer := 0.U
         }
 
-        rxsnp.io.sramWakeupFinishOpt.get := retentionWakeupTimer === sramRetentionWakeupCycles.U
+        rxsnp.io.sramWakeupFinishOpt.get := sramWakeupFinish
         rxsnp.io.powerStateOpt.get       := powerState
         lowPowerCtrl.io.rxsnpValid       := io.chi.rxsnp.valid
         lowPowerCtrl.io.retentionWakeup  := powerState === PowerState.RETENTION && io.chi.rxsnp.valid
+        lowPowerCtrl.io.sramWakeupFinish := sramWakeupFinish
 
-        val lowPowerReqValid = io.lowPowerOpt.get.shutdown.req || io.lowPowerOpt.get.retention.req
-        sinkA.io.lowPowerReqOpt.get      := lowPowerReqValid
         reqArb.io.lowPowerStateOpt.get   := powerState
         reqArb.io.lowPowerTaskOpt_s1.get <> lowPowerCtrl.io.toReqArb
 
