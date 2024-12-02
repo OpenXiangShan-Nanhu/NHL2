@@ -272,6 +272,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
         rxsnp.io.sramWakeupFinishOpt.get := sramWakeupFinish
         rxsnp.io.powerStateOpt.get       := powerState
         lowPowerCtrl.io.rxsnpValid       := io.chi.rxsnp.valid
+        lowPowerCtrl.io.channelReqValid  := reqArb.io.channelReqValidOpt.get
         lowPowerCtrl.io.retentionWakeup  := powerState === PowerState.RETENTION && io.chi.rxsnp.valid
         lowPowerCtrl.io.sramWakeupFinish := sramWakeupFinish
 

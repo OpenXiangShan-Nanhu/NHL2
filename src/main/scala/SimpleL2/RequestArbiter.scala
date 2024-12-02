@@ -65,7 +65,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val bufferStatus       = Input(new BufferStatusSourceD) // from SourceD
         val resetFinish        = Input(Bool())
 
-        val lowPowerStateOpt = if (hasLowPowerInterface) Some(Input(UInt(PowerState.width.W))) else None
+        val lowPowerStateOpt   = if (hasLowPowerInterface) Some(Input(UInt(PowerState.width.W))) else None
+        val channelReqValidOpt = if (hasLowPowerInterface) Some(Output(Bool())) else None
     })
 
     io <> DontCare
@@ -326,7 +327,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         assert(!(io.lowPowerStateOpt.get === PowerState.SHUTDOWN && chnlTask_s1.valid), "When powerState is SHUTDOWN, L2Cache cannot accept any channel request")
     }
 
-    chnlTask_s1.ready := io.resetFinish && !mshrTaskFull_s1 && Mux(!chnlTask_s1.bits.snpHitReq, io.dirRead_s1.ready, true.B)
+    chnlTask_s1.ready := io.resetFinish && io.lowPowerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE && !mshrTaskFull_s1 && Mux(!chnlTask_s1.bits.snpHitReq, io.dirRead_s1.ready, true.B)
     task_s1 := Mux(
         mshrTaskFull_s1,
         mshrTask_s1,
@@ -483,6 +484,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     io.status.stage3.set      := set_s3
     io.status.stage3.tag      := tag_s3
     io.status.stage3.isRefill := DontCare
+
+    io.channelReqValidOpt.foreach(_ := io.taskSinkA_s1.valid || io.taskSinkC_s1.valid || io.taskSnoop_s1.valid)
 
     dontTouch(io)
 }

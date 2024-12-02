@@ -27,6 +27,7 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
         val toReqArb = DecoupledIO(new LowPowerToReqArb)
 
         val rxsnpValid       = Input(Bool())
+        val channelReqValid  = Input(Bool())
         val retentionWakeup  = Input(Bool()) // Only snoop request can wakeup retention
         val sramWakeupFinish = Input(Bool())
         val powerState       = Output(UInt(PowerState.width.W))
@@ -142,7 +143,16 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
     powerState        := nextPowerState
     io.powerState     := powerState
     io.lastPowerState := lastStableState
-    io.lowPower.idle  := mshrAllFree && !mpHasRequest // TODO: Check for SourceD and TXDAT
+
+    val idleDelayTimer   = RegInit(idleDelayCycles.U(log2Ceil(idleDelayCycles).W))
+    val noPendingRequest = mshrAllFree && !mpHasRequest && !io.channelReqValid
+    when(noPendingRequest && idleDelayTimer < idleDelayCycles.U) {
+        idleDelayTimer := idleDelayTimer + 1.U
+    }.elsewhen(!noPendingRequest) {
+        idleDelayTimer := 0.U
+    }
+
+    io.lowPower.idle := idleDelayTimer === idleDelayCycles.U // TODO: Check for SourceD and TXDAT
 
     // Send lower power response according to the current state of the l2cache
     val reqValid_s1 = io.lowPower.req.fire
@@ -158,7 +168,7 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
             reqValid_s2
         )
     )
-    io.lowPower.resp.bits := Mux(reqIsOff_s2 || reqIsOff_s2, SUCCESS, respState)
+    io.lowPower.resp.bits := Mux(reqIsOff_s2 || reqIsOn_s2, SUCCESS, respState)
 
     val MSHR_FREE_THRESHOLD = lowPowerMSHRFreeThreshold
     val startTimer          = RegInit(0.U(log2Up(MSHR_FREE_THRESHOLD + 1).W))

@@ -74,6 +74,7 @@ case class L2Param(
     lowPowerMSHRFreeThreshold: Int = 500,
     sramRetentionWakeupCycles: Int = 10, // Cycles to wait for SRAM wakeup from retention
     sramShutdownWakeupCycles: Int = 32,  // Cycles to wait for SRAM wakeup from shutdown
+    idleDelayCycles: Int = 100,
 ) {
     require(isPow2(ways))
     require(isPow2(sets))
@@ -137,6 +138,7 @@ trait HasL2Param {
     val lowPowerMSHRFreeThreshold = l2param.lowPowerMSHRFreeThreshold
     val sramRetentionWakeupCycles = l2param.sramRetentionWakeupCycles
     val sramShutdownWakeupCycles  = l2param.sramShutdownWakeupCycles
+    val idleDelayCycles           = l2param.idleDelayCycles
 
     /** 
      * ECC parameters 

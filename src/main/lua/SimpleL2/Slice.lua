@@ -7273,6 +7273,39 @@ local test_MakeUnique_and_SnpNotSharedDirty = env.register_test_case "test_MakeU
     end
 }
 
+local test_lowPower_idle_switch = env.register_test_case "test_lowPower_idle_switch" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_d.ready:set(1)
+        
+        env.negedge()
+            write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TC)
+            dut.io_lowPowerOpt_idle:expect(1)
+        env.negedge()
+            tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoB, 0)
+        env.negedge()
+            dut.io_lowPowerOpt_idle:expect(0)
+
+        env.expect_happen_until(10, function () return tl_d:fire() end)
+        env.negedge()
+        env.expect_happen_until(10, function () return tl_d:fire() end)
+        
+        dut.io_lowPowerOpt_idle:expect(0)
+        
+        local cycles = 0
+        env.expect_happen_until(200, function ()
+            cycles = cycles + 1
+            return dut.io_lowPowerOpt_idle:is(1)
+        end)
+        print("idle recover cycles: " .. cycles)
+        assert(cycles >= 100)
+
+        env.dut_reset()
+    end
+}
+
 local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shutdown_request" {
     function ()
         env.dut_reset()
@@ -7546,6 +7579,71 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
             env.negedge()
                 low_power_state:expect(PowerState.ACTIVE)
             env.expect_not_happen_until(100, function () return low_power_state:is(PowerState.RETENTION) end)
+        end
+
+        -- RET and receive a ChannelA request
+        do
+            dut.io_lowPowerOpt_idle:expect(1)
+
+            env.negedge()
+                low_power_state:expect(PowerState.ACTIVE)
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(1) -- RET = 1
+            env.negedge()
+                low_power_req.valid:set(0)
+                low_power_resp.valid:expect(1)
+                low_power_resp.bits:expect(1)
+            
+            env.expect_happen_until(10, function () return low_power_state:is(PowerState.RETENTION) end)
+            dut.io_lowPowerOpt_idle:expect(1)
+
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.TC)
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoB, 0)
+            
+            fork {
+                function ()
+                    env.expect_not_happen_until(100, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(1) end)
+                end
+            }
+            lowPowerCtrl.io_channelReqValid:expect(1)
+            low_power_state:expect(PowerState.RETENTION)
+            dut.io_lowPowerOpt_idle:expect(0)
+            env.negedge(100)
+
+            env.negedge()
+                low_power_req.valid:set(1)
+                low_power_req.bits:set(2) -- ON = 2
+            env.negedge()
+                low_power_req.valid:set(0)
+
+            local cycles = 0
+            env.expect_happen_until(100, function () 
+                cycles = cycles + 1
+                return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) 
+            end)
+            assert(cycles >= 10, cycles) -- wakeup form RET
+
+            fork {
+                function ()
+                    local cycles = 0
+                    env.expect_happen_until(200, function ()
+                        cycles = cycles + 1
+                        return dut.io_lowPowerOpt_idle:is(1)
+                    end)
+                    print("idle recover cycles: " .. cycles)
+                    assert(cycles >= 100)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return tl_d:fire() end)
+                    env.negedge()
+                    env.expect_happen_until(10, function () return tl_d:fire() end)
+                end
+            }
+
+            env.negedge(300)
+            env.dut_reset()
         end
 
         env.posedge(100)
@@ -8071,6 +8169,7 @@ verilua "mainTask" { function ()
     test_ooo_rxdat_refill()
     test_seperate_data_resp()
     test_MakeUnique_and_SnpNotSharedDirty()
+    test_lowPower_idle_switch()
     test_lowPower_shutdown_request()
     test_lowPower_retention_request()
     test_SnpOnce()
