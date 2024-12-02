@@ -7302,7 +7302,12 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
             env.negedge()
                 low_power_req.valid:set(0)
 
-            env.expect_happen_until(50, function () return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) end)
+            local cycles = 0
+            env.expect_happen_until(50, function ()
+                cycles = cycles + 1
+                return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) 
+            end)
+            assert(cycles >= 32, cycles)
         end
 
         -- ON -> OFF
@@ -7529,9 +7534,15 @@ local test_lowPower_retention_request = env.register_test_case "test_lowPower_re
                 low_power_req.bits:set(2) -- ON = 2
             env.negedge()
                 low_power_req.valid:set(0)
-            env.negedge(10)
+
+            local cycles = 0
+            env.expect_happen_until(20, function () 
+                cycles = cycles + 1
+                return low_power_resp.valid:is(1) and low_power_resp.bits:is(1)
+            end)
+            print("lowPower wakeup from RET after " .. cycles .. " cycles")
+            assert(cycles >= 10, cycles)
             
-            env.expect_happen_until(10, function () return low_power_resp.valid:is(1) and low_power_resp.bits:is(1) end)
             env.negedge()
                 low_power_state:expect(PowerState.ACTIVE)
             env.expect_not_happen_until(100, function () return low_power_state:is(PowerState.RETENTION) end)
