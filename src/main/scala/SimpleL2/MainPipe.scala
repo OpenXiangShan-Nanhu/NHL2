@@ -263,7 +263,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isRelease_s3      = task_s3.opcode === Release && task_s3.isChannelC
 
     val mpTask_refill_s3  = valid_s3 && task_s3.isMshrTask && !task_s3.isCHIOpcode && !task_s3.readTempDs && (task_s3.opcode === AccessAckData || task_s3.opcode === GrantData)
-    val mpTask_snpresp_s3 = valid_s3 && task_s3.isMshrTask && task_s3.isCHIOpcode && (task_s3.opcode === SnpResp || task_s3.opcode === SnpRespData)
+    val mpTask_snpresp_s3 = valid_s3 && task_s3.isMshrTask && task_s3.isCHIOpcode && (task_s3.opcode === SnpResp || task_s3.opcode === SnpRespData || task_s3.opcode === SnpRespDataFwded || task_s3.opcode === SnpRespFwded)
 
     val needReadOnMiss_a_s3   = !hit_s3 && (isGet_s3 || isAcquire_s3 || isPrefetch_s3)
     val needReadOnHit_a_s3    = hit_s3 && (!isPrefetch_s3 && reqNeedT_s3 && meta_s3.isBranch) // send MakeUnique. Notice: Prefetch and hit while permission is not enough will not lead to permission upgrade.
@@ -831,7 +831,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txrsp_s4.bits.tgtID   := Mux(valid_snpresp_s4, task_s4.srcID, task_s4.tgtID)
     io.txrsp_s4.bits.txnID   := task_s4.txnID
     io.txrsp_s4.bits.dbID    := task_s4.txnID
-    io.txrsp_s4.bits.opcode  := SnpResp
+    io.txrsp_s4.bits.opcode  := task_s4.opcode
     io.txrsp_s4.bits.resp    := snpResp_s4
     io.txrsp_s4.bits.respErr := RespErr.NormalOkay
 
