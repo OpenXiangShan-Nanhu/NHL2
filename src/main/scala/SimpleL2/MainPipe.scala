@@ -831,7 +831,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txrsp_s4.bits.tgtID   := Mux(valid_snpresp_s4, task_s4.srcID, task_s4.tgtID)
     io.txrsp_s4.bits.txnID   := task_s4.txnID
     io.txrsp_s4.bits.dbID    := task_s4.txnID
-    io.txrsp_s4.bits.opcode  := task_s4.opcode
+    io.txrsp_s4.bits.opcode  := SnpResp
     io.txrsp_s4.bits.resp    := snpResp_s4
     io.txrsp_s4.bits.respErr := RespErr.NormalOkay
 
