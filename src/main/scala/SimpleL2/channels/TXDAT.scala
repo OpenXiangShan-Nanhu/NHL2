@@ -68,7 +68,7 @@ class TXDAT()(implicit p: Parameters) extends L2Module {
     // BE bits must be deasserted, and the corresponding data must be set to 0.
     val deqIsValid = !(deq.bits.txdat.resp === Resp.I && deq.bits.txdat.opcode === CHIOpcodeDAT.CopyBackWrData)
 
-    when(io.out.fire) {
+    when(io.out.fire && io.out.bits.opcode =/= CHIOpcodeDAT.NonCopyBackWrData) {
         when(last) {
             beatCnt := 0.U
         }.otherwise {
@@ -76,7 +76,7 @@ class TXDAT()(implicit p: Parameters) extends L2Module {
         }
     }
 
-    deq.ready          := io.out.ready && last
+    deq.ready          := io.out.ready && Mux(io.out.bits.opcode === CHIOpcodeDAT.NonCopyBackWrData, true.B, last) // For now, NonCopyBackWrData only require one beat
     io.out.valid       := deq.valid
     io.out.bits        := deq.bits.txdat
     io.out.bits.data   := Mux(deqIsValid, Mux(last, deqData(511, 256), deqData(255, 0)), 0.U)

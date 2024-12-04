@@ -26,6 +26,28 @@ local OpcodeREQ = setmetatable({
     WriteNoSnpPtl     = 0x1C + lshift(0, 6),
     WriteNoSnpFull    = 0x1D + lshift(0, 6),
 
+    AtomicStore_ADD = 0x28 + lshift(0, 6),
+	AtomicStore_CLR = 0x29 + lshift(0, 6),
+	AtomicStore_EOR = 0x2A + lshift(0, 6),
+	AtomicStore_SET = 0x2B + lshift(0, 6),
+	AtomicStore_SMAX = 0x2C + lshift(0, 6),
+	AtomicStore_SMIN = 0x2D + lshift(0, 6),
+	AtomicStore_UMAX = 0x2E + lshift(0, 6),
+	AtomicStore_UMIN = 0x2F + lshift(0, 6),
+
+	AtomicLoad_ADD = 0x30 + lshift(0, 6),
+	AtomicLoad_CLR = 0x31 + lshift(0, 6),
+	AtomicLoad_EOR = 0x32 + lshift(0, 6),
+	AtomicLoad_SET = 0x33 + lshift(0, 6),
+	AtomicLoad_SMAX = 0x34 + lshift(0, 6),
+	AtomicLoad_SMIN = 0x35 + lshift(0, 6),
+	AtomicLoad_UMAX = 0x36 + lshift(0, 6),
+	AtomicLoad_UMIN = 0x37 + lshift(0, 6),
+
+	AtomicSwap = 0x38 + lshift(0, 6),
+	AtomicCompare = 0x39 + lshift(0, 6),
+
+
     ReadNotSharedDirty = 0x26 + lshift(0, 6),
 }, { __call = enum_search })
 
@@ -57,6 +79,7 @@ local OpcodeRSP = setmetatable({
     DBIDResp        = 0x06,
     PCrdGrant       = 0x07,
     ReadReceipt     = 0x08,
+    SnpRespFwded    = 0x09,
     RespSepData     = 0x0B,
 }, { __call = enum_search })
 

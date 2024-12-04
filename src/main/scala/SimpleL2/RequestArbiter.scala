@@ -67,6 +67,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
 
         val lowPowerStateOpt   = if (hasLowPowerInterface) Some(Input(UInt(PowerState.width.W))) else None
         val channelReqValidOpt = if (hasLowPowerInterface) Some(Output(Bool())) else None
+
+        val amoDataBufRdOpt = if (enableBypassAtomic) Some(Valid(new AtomicDataBufferReadReq)) else None
     })
 
     io <> DontCare
@@ -368,6 +370,11 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     io.tempDsRead_s1.bits.dest := Mux(arbTaskSnoop.bits.snpHitReq && !mshrTaskFull_s1, DataDestination.TXDAT, mshrTask_s1.tempDsDest)
     io.dsWrSet_s1              := task_s1.set
     io.dsWrWayOH_s1            := task_s1.wayOH
+
+    if (enableBypassAtomic) {
+        io.amoDataBufRdOpt.get.valid    := mshrTaskFull_s1 && mshrTaskReady_s1 && mshrTask_s1.isCHIOpcode && mshrTask_s1.chiOpcode === CHIOpcodeDAT.NonCopyBackWrData
+        io.amoDataBufRdOpt.get.bits.idx := mshrTask_s1.amoBufIdOpt.get
+    }
 
     val fireVec_s1 = VecInit(Seq(io.taskSinkA_s1.fire, io.taskSinkC_s1.fire, io.taskSnoop_s1.fire, io.taskCMO_s1.fire)).asUInt
     assert(PopCount(fireVec_s1) <= 1.U, "fireVec_s1:%b", fireVec_s1)

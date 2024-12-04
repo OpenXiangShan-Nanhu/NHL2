@@ -125,6 +125,10 @@ object DirectoryMetaEntryNoTag {
         meta.clientsOH := clientsOH
         meta
     }
+
+    def apply()(implicit p: Parameters): DirectoryMetaEntryNoTag = {
+        apply(false.B, TLState.INVALID, 0.U, 0.U, None, None)
+    }
 }
 
 class DirectoryMetaEntry(implicit p: Parameters) extends L2Bundle with HasMixedState {

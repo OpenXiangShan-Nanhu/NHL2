@@ -34,6 +34,8 @@ local function build_channel(tl_prefix, chi_prefix)
         | size
         | source
         | address
+        | data
+        | mask
         | user_nanhu_pfHint
         | user_nanhu_vaddr
         | user_nanhu_alias
@@ -182,6 +184,36 @@ local function build_channel(tl_prefix, chi_prefix)
             this.valid:set(0)
         env.negedge()
     end
+
+    tl_a.arithmetic_data = function (this, addr, offset, param, data_str, mask, source)
+        env.negedge()
+            this.valid:set(1)
+            this.bits.opcode:set(TLOpcodeA.ArithmeticData)
+            this.bits.address:set(addr + offset, true) -- (<value>, <force single beat>)
+            this.bits.param:set(param)
+            this.bits.source:set(source or 0)
+            this.bits.size:set(3) -- 2^3 == 8
+            this.bits.data:set_str(data_str)
+            this.bits.mask:set(mask)
+        env.negedge()
+            this.valid:set(0)
+        env.negedge()
+    end
+
+    tl_a.logical_data = function (this, addr, offset, param, data_str, mask, source)
+        env.negedge()
+            this.valid:set(1)
+            this.bits.opcode:set(TLOpcodeA.LogicalData)
+            this.bits.address:set(addr + offset, true) -- (<value>, <force single beat>)
+            this.bits.param:set(param)
+            this.bits.source:set(source or 0)
+            this.bits.size:set(3) -- 2^3 == 8
+            this.bits.data:set_str(data_str)
+            this.bits.mask:set(mask)
+        env.negedge()
+            this.valid:set(0)
+        env.negedge()
+    end
     
     tl_c.release_data = function (this, addr, param, source, data_str_0, data_str_1)
         env.negedge()
@@ -260,6 +292,7 @@ local function build_channel(tl_prefix, chi_prefix)
         | addr
         | allowRetry
         | pCrdType
+        | snoopMe
     ]]):bundle {hier = cfg.top, is_decoupled = true, prefix = chi_prefix .. "txreq_", name = "chi_txreq"}
     
     local chi_txdat = ([[
@@ -312,6 +345,16 @@ local function build_channel(tl_prefix, chi_prefix)
         env.negedge()
             chi_rxrsp.bits.txnID:set(txn_id)
             chi_rxrsp.bits.opcode:set(OpcodeRSP.CompDBIDResp)
+            chi_rxrsp.bits.dbID:set(db_id)
+            chi_rxrsp.valid:set(1)
+        env.negedge()
+            chi_rxrsp.valid:set(0)
+    end
+
+    chi_rxrsp.dbidresp = function (this, txn_id, db_id)
+        env.negedge()
+            chi_rxrsp.bits.txnID:set(txn_id)
+            chi_rxrsp.bits.opcode:set(OpcodeRSP.DBIDResp)
             chi_rxrsp.bits.dbID:set(db_id)
             chi_rxrsp.valid:set(1)
         env.negedge()
@@ -377,6 +420,21 @@ local function build_channel(tl_prefix, chi_prefix)
         env.negedge()
             chi_rxdat.bits.data:set_str(data_str_1)
             chi_rxdat.bits.dataID:set(2) -- last data beat
+        env.negedge()
+            chi_rxdat.valid:set(0)
+    end
+
+    chi_rxdat.compdat_1 = function (this, txn_id, data_str_0, dbID, resp)
+        local dbID = dbID or 0
+        local resp = resp or CHIResp.I
+        env.negedge()
+            chi_rxdat.bits.txnID:set(txn_id)
+            chi_rxdat.bits.dataID:set(0)
+            chi_rxdat.bits.opcode:set(OpcodeDAT.CompData)
+            chi_rxdat.bits.data:set_str(data_str_0)
+            chi_rxdat.bits.dbID:set(dbID)
+            chi_rxdat.bits.resp:set(resp)
+            chi_rxdat.valid:set(1)
         env.negedge()
             chi_rxdat.valid:set(0)
     end
@@ -454,6 +512,10 @@ local function build_channel(tl_prefix, chi_prefix)
     
     chi_rxsnp.snpunique = function (this, addr, txn_id, ret2src, src_id)
         chi_rxsnp:send_request(addr, OpcodeSNP.SnpUnique, txn_id, ret2src, src_id)
+    end
+
+    chi_rxsnp.snpcleaninvalid = function (this, addr, txn_id, ret2src, src_id)
+        chi_rxsnp:send_request(addr, OpcodeSNP.SnpCleanInvalid, txn_id, ret2src, src_id)
     end
 
     chi_rxsnp.snponce = function (this, addr, txn_id, ret2src, src_id)

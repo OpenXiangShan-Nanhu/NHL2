@@ -90,6 +90,8 @@ class Slice()(implicit p: Parameters) extends L2Module {
     // TODO: sinkIdPool backpressure when full
     val sinkIdPool = Module(new IDPool((nrMSHR until (nrMSHR + nrExtraSinkId)).toSet))
 
+    val amoDataBufOpt = if (enableBypassAtomic) Some(Module(new AtomicDataBuffer)) else None
+
     sinkIdPool.io.alloc.valid    := sourceD.io.sinkIdAlloc.valid
     sourceD.io.sinkIdAlloc.idOut := sinkIdPool.io.alloc.idOut
     sinkIdPool.io.free.valid     := sinkE.io.sinkIdFree.valid
@@ -218,9 +220,24 @@ class Slice()(implicit p: Parameters) extends L2Module {
     txrsp.io.mshrTask  <> missHandler.io.tasks.txrsp
     txrsp.io.mpTask_s4 <> mainPipe.io.txrsp_s4
 
+    if (enableBypassAtomic) {
+        val amoDataBufResp = amoDataBufOpt.get.io.read.resp
+        if (enableDataECC) {
+            val amoDataBufRespValid = RegNext(amoDataBufResp.valid, false.B)
+            txdat.io.data_s2.bits  := Mux(amoDataBufRespValid, RegEnable(amoDataBufResp.bits, amoDataBufResp.valid), tempDS.io.toTXDAT.data_s2.bits)
+            txdat.io.data_s2.ready <> tempDS.io.toTXDAT.data_s2.ready
+            txdat.io.data_s2.valid := amoDataBufRespValid || tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2
+        } else {
+            txdat.io.data_s2.bits  := Mux(amoDataBufResp.valid, amoDataBufResp.bits, tempDS.io.toTXDAT.data_s2)
+            txdat.io.data_s2.ready <> tempDS.io.toTXDAT.data_s2.ready
+            txdat.io.data_s2.valid := amoDataBufResp.valid || tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2
+            assert(!(amoDataBufResp.valid && (tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2)))
+        }
+    } else {
+        txdat.io.data_s2       <> tempDS.io.toTXDAT.data_s2
+        txdat.io.data_s2.valid := tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2
+    }
     txdat.io.task_s2         <> mainPipe.io.txdat_s2
-    txdat.io.data_s2         <> tempDS.io.toTXDAT.data_s2
-    txdat.io.data_s2.valid   := tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2
     txdat.io.task_s6s7       <> mainPipe.io.txdat_s6s7
     txdat.io.data_s6s7.valid := ds.io.toTXDAT.dsResp_s6s7.valid
     txdat.io.data_s6s7.bits  := ds.io.toTXDAT.dsResp_s6s7.bits.data
@@ -283,6 +300,12 @@ class Slice()(implicit p: Parameters) extends L2Module {
         ds.io.sramRetentionOpt.get     := powerState === PowerState.RETENTION
         dir.io.sramRetentionOpt.get    := powerState === PowerState.RETENTION
         tempDS.io.sramRetentionOpt.get := powerState === PowerState.RETENTION
+    }
+
+    if (enableBypassAtomic) {
+        amoDataBufOpt.get.io.write    <> sinkA.io.amoDataBufWrOpt.get
+        amoDataBufOpt.get.io.read.req <> reqArb.io.amoDataBufRdOpt.get
+        amoDataBufOpt.get.io.free     <> mainPipe.io.amoDataBufFreeOpt_s2.get
     }
 
     dontTouch(io)

@@ -7,6 +7,7 @@ local assert = assert
 local expect = env.expect
 
 local TLParam = tl.TLParam
+local TLAtomics = tl.TLAtomics
 local TLOpcodeA = tl.TLOpcodeA
 local TLOpcodeB = tl.TLOpcodeB
 local TLOpcodeC = tl.TLOpcodeC
@@ -8085,6 +8086,170 @@ local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release"
     end
 }
 
+local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_swap" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        -- Atomic on miss
+        local test_atomic_on_miss = function (tl_opcode, tl_param, expect_chi_opcode)
+            print("test_arithmetic_on_miss", TLOpcodeA(tl_opcode), TLAtomics(tl_param), OpcodeREQ(expect_chi_opcode))
+            local offset = 0x8
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.I, 0)
+            env.negedge()
+                local random_char = tostring(math.random(0, 9))
+                local data_str = "0x1122" .. random_char
+                local random_mask = math.random(0, 255)
+                fork {
+                    function ()
+                        env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
+                        env.posedge()
+                            env.expect_not_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) end)
+                    end
+                }
+                if tl_opcode == TLOpcodeA.ArithmeticData then
+                    tl_a:arithmetic_data(to_address(0x01, 0x01), offset, tl_param, data_str, random_mask, 0x01) -- source = 0x01
+                elseif tl_opcode == TLOpcodeA.LogicalData then
+                    tl_a:logical_data(to_address(0x01, 0x01), offset, tl_param, data_str, random_mask, 0x01) -- source = 0x01
+                else
+                    assert(false, "Unexpected opcode")
+                end
+            
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) and chi_txreq.bits.opcode:is(expect_chi_opcode) end)
+            chi_txreq.bits.snoopMe:expect(0)
+
+            chi_rxrsp:dbidresp(0, 0x03) -- dbid = 0x03
+
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
+
+            chi_rxdat:compdat_1(0, "0xdead", 0x03, CHIResp.I) -- dbid = 0x03
+
+            fork {
+                function ()
+                    -- Atomic transaction will not update directory
+                    env.expect_not_happen_until(50, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.AccessAckData) and tl_d.bits.data:is_hex_str("0xdead") end)
+            env.negedge()
+            env.expect_not_happen_until(10, function () return tl_d:fire() end)
+
+            env.negedge(10)
+                mshrs[0].io_status_valid:expect(0)
+
+            env.negedge(100)
+        end
+        test_atomic_on_miss(TLOpcodeA.ArithmeticData, TLAtomics.MIN, OpcodeREQ.AtomicLoad_SMIN)
+        test_atomic_on_miss(TLOpcodeA.ArithmeticData, TLAtomics.MAX, OpcodeREQ.AtomicLoad_SMAX)
+        test_atomic_on_miss(TLOpcodeA.ArithmeticData, TLAtomics.MINU, OpcodeREQ.AtomicLoad_UMIN)
+        test_atomic_on_miss(TLOpcodeA.ArithmeticData, TLAtomics.MAXU, OpcodeREQ.AtomicLoad_UMAX)
+        test_atomic_on_miss(TLOpcodeA.ArithmeticData, TLAtomics.ADD, OpcodeREQ.AtomicLoad_ADD)
+        test_atomic_on_miss(TLOpcodeA.LogicalData, TLAtomics.XOR, OpcodeREQ.AtomicLoad_EOR)
+        test_atomic_on_miss(TLOpcodeA.LogicalData, TLAtomics.OR, OpcodeREQ.AtomicLoad_SET)
+        test_atomic_on_miss(TLOpcodeA.LogicalData, TLAtomics.AND, OpcodeREQ.AtomicLoad_CLR)
+        test_atomic_on_miss(TLOpcodeA.LogicalData, TLAtomics.SWAP, OpcodeREQ.AtomicSwap)
+
+        local test_atomic_on_hit = function (state, clientsOH, probeack_data)
+            assert(state ~= MixedState.I)
+
+            print("test_atomic_on_hit_no_clients", MixedState(state))
+            local offset = 0x8
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, state, clientsOH)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+            env.negedge()
+                local random_char = tostring(math.random(0, 9))
+                local data_str = "0x1122" .. random_char
+                local random_mask = math.random(0, 255)
+                fork {
+                    function ()
+                        env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
+                        env.posedge()
+                            env.expect_not_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) end)
+                    end
+                }
+                tl_a:arithmetic_data(to_address(0x01, 0x01), offset, TLAtomics.MIN, data_str, random_mask, 0x01) -- source = 0x01
+
+            if clientsOH == 0x02 then
+                env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.address:is(to_address(0x01, 0x01)) and tl_b.bits.source:is(16) end)
+                if probeack_data then
+                    tl_c:probeack_data(to_address(0x01, 0x01), TLParam.BtoN, "0xaabb1", "0xccdd1", 17)
+                else
+                    tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 17)
+                end
+            else
+                assert(clientsOH == 0x00)
+            end
+            
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) end)
+            chi_txreq.bits.snoopMe:expect(1)
+            
+            local need_data = state == MixedState.BD or state == MixedState.TD or state == MixedState.TTD
+            local expect_data_0 = "0xd1e1ad"
+            local expect_data_1 = "0xb1e1ef"
+            if probeack_data then
+                expect_data_0 = "0xaabb1"
+                expect_data_1 = "0xccdd1"
+            end
+
+            chi_rxsnp:snpcleaninvalid(to_address(0x01, 0x01), 0x02, false, 0x01) -- txn_id = 0x02, src_id = 0x01
+            mshrs[0].io_status_reqAllowSnoop:expect(1)
+
+            if need_data then
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(expect_data_0) end)
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.dataID:is(2) and chi_txdat.bits.data:is_hex_str(expect_data_1) end)
+            else
+                env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+            end
+
+            chi_rxrsp:dbidresp(0, 0x03) -- dbid = 0x03
+
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
+
+            chi_rxdat:compdat_1(0, "0xdead" .. random_char, 0x03, CHIResp.I) -- dbid = 0x03
+
+            fork {
+                function ()
+                    -- Atomic transaction update directory if the directory result is hit
+                    env.expect_happen_until(50, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0) end)
+                end
+            }
+
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.AccessAckData) and tl_d.bits.data:is_hex_str("0xdead" .. random_char) end)
+            env.negedge()
+            env.expect_not_happen_until(10, function () return tl_d:fire() end)
+
+            env.negedge(10)
+                mshrs[0].io_status_valid:expect(0)
+
+            env.negedge(100)
+        end
+        test_atomic_on_hit(MixedState.BC, 0, false)
+        test_atomic_on_hit(MixedState.BD, 0, false)
+        test_atomic_on_hit(MixedState.TC, 0, false)
+        test_atomic_on_hit(MixedState.TD, 0, false)
+
+        -- Has client and need probe
+        test_atomic_on_hit(MixedState.BC, 0x02, false)
+        test_atomic_on_hit(MixedState.TC, 0x02, false)
+        test_atomic_on_hit(MixedState.TTC, 0x02, false)
+        test_atomic_on_hit(MixedState.TTD, 0x02, false)
+        test_atomic_on_hit(MixedState.TTC, 0x02, true)
+        test_atomic_on_hit(MixedState.TTD, 0x02, true)
+
+        env.negedge(100)
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -8177,6 +8342,7 @@ verilua "mainTask" { function ()
     test_SnpOnce()
     test_SnpOnceFwd()
     test_s2s3_block_release()
+    test_atomic_load_and_swap()
     end
 
    

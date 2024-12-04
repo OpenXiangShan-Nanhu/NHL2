@@ -11,21 +11,26 @@ import xs.utils.tl.{TLNanhuBusKey, TLNanhuUserBundle}
 
 class SinkA()(implicit p: Parameters) extends L2Module {
     val io = IO(new Bundle {
-        val a              = Flipped(DecoupledIO(new TLBundleA(tlBundleParams)))
-        val prefetchReqOpt = if (enablePrefetch) Some(Flipped(DecoupledIO(new SimpleL2.prefetch.PrefetchReq))) else None
-        val task           = DecoupledIO(new TaskBundle)
-        val sliceId        = Input(UInt(bankBits.W))
+        val a               = Flipped(DecoupledIO(new TLBundleA(tlBundleParams)))
+        val prefetchReqOpt  = if (enablePrefetch) Some(Flipped(DecoupledIO(new SimpleL2.prefetch.PrefetchReq))) else None
+        val task            = DecoupledIO(new TaskBundle)
+        val sliceId         = Input(UInt(bankBits.W))
+        val amoDataBufWrOpt = if (enableBypassAtomic) Some(Flipped(new AtomicDataBufferWrite)) else None
     })
 
     io      <> DontCare
     io.a    <> DontCare
     io.task <> DontCare
 
+    // TODO: Atomic mask
+    val isAtomicReq     = io.a.bits.opcode === TLMessages.ArithmeticData || io.a.bits.opcode === TLMessages.LogicalData
+    val amoDataBufReady = if (enableBypassAtomic) io.amoDataBufWrOpt.get.ready else true.B
+
     if (enablePrefetch) {
         val (tag, set, offset) = parseAddress(io.a.bits.address)
-        assert(!(io.a.fire && offset =/= 0.U))
+        assert(!(io.a.fire && !isAtomicReq && offset =/= 0.U))
 
-        io.task.valid        := io.a.valid || io.prefetchReqOpt.get.valid
+        io.task.valid        := io.a.valid && Mux(isAtomicReq, amoDataBufReady, true.B) || io.prefetchReqOpt.get.valid
         io.task.bits.channel := L2Channel.ChannelA
 
         when(io.a.valid) {
@@ -54,8 +59,10 @@ class SinkA()(implicit p: Parameters) extends L2Module {
             io.task.bits.aliasOpt.foreach(_ := 0.U)
         }
 
-        io.a.ready := io.task.ready
-        assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
+        io.a.ready := io.task.ready && Mux(isAtomicReq, amoDataBufReady, true.B)
+        when(!isAtomicReq) {
+            assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
+        }
         LeakChecker(io.a.valid, io.a.fire, Some("SinkA_io_a_valid"), maxCount = deadlockThreshold)
 
         io.prefetchReqOpt.foreach { req =>
@@ -66,7 +73,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         val (tag, set, offset) = parseAddress(io.a.bits.address)
         assert(!(io.a.fire && offset =/= 0.U))
 
-        io.task.valid        := io.a.valid
+        io.task.valid        := io.a.valid && Mux(isAtomicReq, amoDataBufReady, true.B)
         io.task.bits.channel := L2Channel.ChannelA
         io.task.bits.opcode  := io.a.bits.opcode
         io.task.bits.param   := io.a.bits.param
@@ -78,10 +85,21 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         io.task.bits.needHintOpt.foreach(_ := userField.pfHint)
         io.task.bits.aliasOpt.foreach(_ := userField.alias.getOrElse(0.U))
 
-        io.a.ready := io.task.ready
+        io.a.ready := io.task.ready && Mux(isAtomicReq, amoDataBufReady, true.B)
 
         assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
         LeakChecker(io.a.valid, io.a.fire, Some("SinkA_io_a_valid"), maxCount = deadlockThreshold)
+    }
+
+    if (enableBypassAtomic) {
+        val amoDataBufWr   = io.amoDataBufWrOpt.get
+        val (_, _, offset) = parseAddress(io.a.bits.address)
+
+        amoDataBufWr.valid           := io.a.fire
+        amoDataBufWr.bits.data       := io.a.bits.data
+        io.task.bits.amoBufIdOpt.get := amoDataBufWr.idx
+        io.task.bits.offsetOpt.get   := offset
+        io.task.bits.maskOpt.get     := io.a.bits.mask
     }
 
     dontTouch(io)

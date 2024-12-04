@@ -75,6 +75,11 @@ case class L2Param(
     sramRetentionWakeupCycles: Int = 10, // Cycles to wait for SRAM wakeup from retention
     sramShutdownWakeupCycles: Int = 32,  // Cycles to wait for SRAM wakeup from shutdown
     idleDelayCycles: Int = 100,
+
+    // Atomic
+    enableBypassAtomic: Boolean = true, // Bypass the received atomic transaction(TileLink) and send it to the next-level cache(CHI)
+    nrAtomicDataBuffer: Int = 4,
+    atomicDataBufferDataBits: Int = 64 * 2 // TODO:
 ) {
     require(isPow2(ways))
     require(isPow2(sets))
@@ -84,6 +89,7 @@ case class L2Param(
     require(nrNonDataSourceDEntry >= 2)
     require(replacementPolicy == "random" || replacementPolicy == "plru" || replacementPolicy == "lru")
     require(dataEccCode == "none" || dataEccCode == "identity" || dataEccCode == "parity" || dataEccCode == "sec" || dataEccCode == "secded")
+    require(nrAtomicDataBuffer <= nrReqBufEntry)
 
     private val addressMask = (1L << addressBits) - 1
     val addressSet          = AddressSet(0, addressMask)
@@ -139,6 +145,10 @@ trait HasL2Param {
     val sramRetentionWakeupCycles = l2param.sramRetentionWakeupCycles
     val sramShutdownWakeupCycles  = l2param.sramShutdownWakeupCycles
     val idleDelayCycles           = l2param.idleDelayCycles
+
+    val enableBypassAtomic       = l2param.enableBypassAtomic
+    val nrAtomicDataBuffer       = l2param.nrAtomicDataBuffer
+    val atomicDataBufferDataBits = l2param.atomicDataBufferDataBits
 
     /** 
      * ECC parameters 

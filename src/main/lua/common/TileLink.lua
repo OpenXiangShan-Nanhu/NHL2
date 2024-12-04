@@ -33,6 +33,22 @@ local TLParam = utils.enum_define {
     NtoN = 5
 }
 
+local TLAtomics = utils.enum_define {
+    name = "TLAtomics",
+
+    -- Arithmetic types
+    MIN  = 0,
+    MAX  = 1,
+    MINU = 2,
+    MAXU = 3,
+    ADD  = 4,
+
+    -- Logical types
+    XOR  = 0,
+    OR   = 1,
+    AND  = 2,
+    SWAP = 3
+}
 
 local MixedState = utils.enum_define {
     name = "MixedState",
@@ -50,6 +66,8 @@ local TLOpcodeA = utils.enum_define {
     name = "TLOpcodeA",
     PutFullData = 0,
     PutPartialData = 1,
+    ArithmeticData = 2,
+    LogicalData = 3,
     Get = 4,
     Hint = 5,
     AcquireBlock = 6,
@@ -87,6 +105,7 @@ local TLOpcodeE = utils.enum_define {
 return {
     TLChannel = TLChannel,
     TLParam = TLParam,
+    TLAtomics = TLAtomics,
     MixedState = MixedState,
     TLOpcodeA = TLOpcodeA,
     TLOpcodeB = TLOpcodeB,

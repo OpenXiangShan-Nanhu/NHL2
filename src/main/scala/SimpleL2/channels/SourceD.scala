@@ -132,7 +132,7 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     }
 
     /** beat counter for GrantData/AccessAckData */
-    when(io.d.fire && deqNeedData) {
+    when(io.d.fire && deqNeedData && Mux(enableBypassAtomic.B, !deqTask.isAtomicAckOpt.getOrElse(false.B), true.B)) {
         when(last) {
             beatCnt := 0.U
         }.otherwise {
@@ -145,10 +145,10 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     io.d.bits.corrupt := DontCare
     io.d.bits.opcode  := deqTask.opcode
     io.d.bits.param   := deqTask.param
-    io.d.bits.size    := Mux(needData(deqTask.opcode), 6.U, 5.U)       // TODO: parameterize
     io.d.bits.source  := deqTask.source
     io.d.bits.sink    := deqTask.sink                                  // If deqTask is a MSHR task, the sink id is used for the next incoming GrantAck to Address the matched MSHR, otherwise we should allocate an unique sink id which is not overlapped with mshr id to the Grant/GrantData.
     io.d.bits.data    := Mux(last, deqData(511, 256), deqData(255, 0)) // TODO: parameterize
+    io.d.bits.size := Mux(needData(deqTask.opcode), Mux(deqTask.isAtomicAckOpt.getOrElse(false.B), log2Ceil(atomicDataBufferDataBits / 8 / 2).U, 6.U), 5.U) // TODO: parameterize
 
     io.allocGrantMap.valid         := taskFire && (task.opcode === GrantData || task.opcode === Grant)
     io.allocGrantMap.bits.sink     := Mux(task.isMshrTask, task.sink, sinkId)
@@ -157,7 +157,7 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     io.allocGrantMap.bits.tag      := task.tag
 
     nonDataRespQueue.io.deq.ready := choseNonData && io.d.ready
-    skidBuffer.io.deq.ready       := !choseNonData && io.d.ready && last
+    skidBuffer.io.deq.ready       := !choseNonData && io.d.ready && Mux(deqTask.isAtomicAckOpt.getOrElse(false.B), true.B, last)
 
     LeakChecker(io.d.valid, io.d.fire, Some("SourceD_io_d_valid"), maxCount = deadlockThreshold)
 

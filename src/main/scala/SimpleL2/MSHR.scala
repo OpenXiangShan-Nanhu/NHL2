@@ -61,6 +61,13 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val w_respsepdata       = Bool() // from RSP channel
     val w_datasepresp       = Bool() // from DAT channel
     val w_datasepresp_first = Bool()
+
+    // For Atomic transactions
+    val s_atomic_opt         = if (enableBypassAtomic) Some(Bool()) else None
+    val s_ncbwrdata_opt      = if (enableBypassAtomic) Some(Bool()) else None
+    val w_ncbwrdata_sent_opt = if (enableBypassAtomic) Some(Bool()) else None
+    val w_dbidresp_opt       = if (enableBypassAtomic) Some(Bool()) else None
+
 }
 
 class MshrInfo()(implicit p: Parameters) extends L2Bundle {
@@ -96,6 +103,7 @@ class MshrStatus()(implicit p: Parameters) extends L2Bundle {
 
     val hasPendingRefill = Bool()
     val gotCompResp      = Bool()
+    val isAtomicOpt      = if (enableBypassAtomic) Some(Bool()) else None
 
     val waitProbeAck = Bool() // for assertion use only
 }
@@ -115,20 +123,23 @@ class MshrResps()(implicit p: Parameters) extends L2Bundle {
 }
 
 class MshrRetryStage2()(implicit p: Parameters) extends L2Bundle {
-    val isRetry_s2     = Bool()
-    val grant_s2       = Bool()                                 // GrantData
-    val accessack_s2   = Bool()                                 // AccessAckData
-    val cbwrdata_s2    = Bool()                                 // CopyBackWrData
-    val snpresp_s2     = Bool()                                 // SnpRespData
-    val compdat_opt_s2 = if (supportDCT) Some(Bool()) else None // CompData for DCT
+    val isRetry_s2   = Bool()
+    val grant_s2     = Bool() // GrantData
+    val accessack_s2 = Bool() // AccessAckData
+    val cbwrdata_s2  = Bool() // CopyBackWrData
+    val snpresp_s2   = Bool() // SnpRespData
+
+    val compdat_opt_s2   = if (supportDCT) Some(Bool()) else None         // CompData for DCT
+    val ncbwrdata_opt_s2 = if (enableBypassAtomic) Some(Bool()) else None // NonCopyBackWrData for Atomic transaction
 }
 
 class MshrRetryStage4()(implicit p: Parameters) extends L2Bundle {
-    val isRetry_s4     = Bool()
-    val grant_s4       = Bool()                                 // GrantData
-    val accessack_s4   = Bool()                                 // AccessAckData
-    val cbwrdata_s4    = Bool()                                 // CopyBackWrData
-    val snpresp_s4     = Bool()                                 // SnpResp / SnpRespData
+    val isRetry_s4   = Bool()
+    val grant_s4     = Bool() // GrantData
+    val accessack_s4 = Bool() // AccessAckData
+    val cbwrdata_s4  = Bool() // CopyBackWrData
+    val snpresp_s4   = Bool() // SnpResp / SnpRespData
+
     val compdat_opt_s4 = if (supportDCT) Some(Bool()) else None // CompData for DCT
 }
 
@@ -208,6 +219,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val reqIsGet      = req.opcode === Get
     val reqIsAcquire  = req.opcode === AcquireBlock || req.opcode === AcquirePerm
     val reqIsPrefetch = req.opcode === Hint
+    val reqIsAtomic   = (req.opcode === ArithmeticData || req.opcode === LogicalData) && enableBypassAtomic.B
     val reqNeedT      = needT(req.opcode, req.param)
     val reqNeedB      = needB(req.opcode, req.param)
 
@@ -355,6 +367,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             !state.s_pcrdreturn ||
                 !state.s_read ||
                 !state.s_makeunique ||
+                !state.s_atomic_opt.getOrElse(true.B) && state.w_aprobeack ||
                 (!state.s_evict && !mayChangeEvict && !mayCancelEvict || !state.s_wb && !mayCancelWb) && state.w_rprobeack // Evict/WriteBackFull should wait for refill and probeack finish
         )
 
@@ -371,10 +384,24 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                     (reqNeedT && !dirResp.hit && req.opcode === AcquireBlock) -> ReadUnique,
                     reqNeedB                                                  -> ReadNotSharedDirty
                 )
+            ),
+            (!state.s_atomic_opt.getOrElse(true.B) && enableBypassAtomic.B) -> ParallelPriorityMux(
+                Seq(
+                    (req.opcode === ArithmeticData && req.param === TLAtomics.MIN)  -> AtomicLoad_SMIN,
+                    (req.opcode === ArithmeticData && req.param === TLAtomics.MAX)  -> AtomicLoad_SMAX,
+                    (req.opcode === ArithmeticData && req.param === TLAtomics.MINU) -> AtomicLoad_UMIN,
+                    (req.opcode === ArithmeticData && req.param === TLAtomics.MAXU) -> AtomicLoad_UMAX,
+                    (req.opcode === ArithmeticData && req.param === TLAtomics.ADD)  -> AtomicLoad_ADD,
+                    (req.opcode === LogicalData && req.param === TLAtomics.XOR)     -> AtomicLoad_EOR,
+                    (req.opcode === LogicalData && req.param === TLAtomics.OR)      -> AtomicLoad_SET,
+                    (req.opcode === LogicalData && req.param === TLAtomics.AND)     -> AtomicLoad_CLR,
+                    (req.opcode === LogicalData && req.param === TLAtomics.SWAP)    -> AtomicSwap
+                    // TODO: AtomicCompare
+                )
             )
         )
     )
-    io.tasks.txreq.bits.addr       := Cat(Mux(!state.s_read || !state.s_makeunique, req.tag, meta.tag), req.set, 0.U(6.W))
+    io.tasks.txreq.bits.addr       := Cat(Mux(!state.s_read || !state.s_makeunique, req.tag, meta.tag), req.set, req.offsetOpt.getOrElse(0.U).asTypeOf(UInt(6.W)))
     io.tasks.txreq.bits.expCompAck := !state.s_read || !state.s_makeunique // Only for Read* not for Evict
     io.tasks.txreq.bits.size       := log2Ceil(blockBytes).U
     io.tasks.txreq.bits.order      := Order.None                           // No ordering required
@@ -385,6 +412,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     io.tasks.txreq.bits.txnID      := txreqTxnID
     io.tasks.txreq.bits.allowRetry := !gotRetry                            // The AllowRetry field should be set to 1 if the transaction is first issued(except for PrefetchTgt), and 0 if the transaction is being retried.
     io.tasks.txreq.bits.pCrdType   := retryPCrdType                        // If the transaction is the first issued, the PCrdType field should be set to 0b0000
+    io.tasks.txreq.bits.snoopMe    := !state.s_atomic_opt.getOrElse(true.B) && dirResp.hit
     when(io.tasks.txreq.fire) {
         val opcode       = io.tasks.txreq.bits.opcode
         val s_read       = opcode === ReadUnique || opcode === ReadNotSharedDirty
@@ -397,6 +425,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         state.s_evict      := state.s_evict || s_evict
         state.s_wb         := state.s_wb || s_wb
         state.s_pcrdreturn := state.s_pcrdreturn || s_pcrdreturn
+
+        // TODO: Request retry for Atomic transaction
+        val s_atomic = opcode(5, 3) === "b101".U /* AtomicStore */ || opcode(5, 3) === "b110".U /* AtomicLoad */ || opcode === AtomicSwap
+        state.s_atomic_opt.foreach(_ := state.s_atomic_opt.get || s_atomic)
 
         val _lastReqState = WireInit(0.U.asTypeOf(new LastReqState))
         _lastReqState.read       := s_read
@@ -448,7 +480,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     io.tasks.sourceb.bits.param := Mux(
         !state.s_sprobe,
         Mux(CHIOpcodeSNP.isSnpUniqueX(req.opcode) || CHIOpcodeSNP.isSnpToN(req.opcode), toN, toB),
-        Mux(!state.s_rprobe, toN, Mux(reqNeedT || req.isAliasTask, toN, toB))
+        Mux(!state.s_rprobe, toN, Mux(reqNeedT || req.isAliasTask || reqIsAtomic, toN, toB))
     )
     io.tasks.sourceb.bits.address := Cat(Mux(!state.s_rprobe, meta.tag, req.tag), req.set, io.sliceId, 0.U(6.W))
     io.tasks.sourceb.bits.size    := log2Ceil(blockBytes).U
@@ -499,11 +531,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val needRefillData_miss = !dirResp.hit
     val needRefillData      = (req.opcode === AcquireBlock || req.opcode === Get) && (needRefillData_hit || needRefillData_miss)
     val needProbeAckData    = false.B                                                    // TODO:
-    val needTempDsData      = needRefillData || needProbeAckData
+    val needTempDsData      = needRefillData || needProbeAckData || reqIsAtomic
     val mpGrant             = !state.s_grant && !state.w_grantack
     val mpAccessAck         = !state.s_accessack
     val mpHintAck           = !state.s_hintack                                           // send HintAck for prefetch
 
+    // `mpTask_refill.bits.channel` is not used since the refill task always use the same channel => ChannelD
     mpTask_refill.valid := valid &&
         (mpGrant || mpAccessAck || mpHintAck) &&
         (state.w_replResp && state.w_rprobeack && state.s_wb && state.s_cbwrdata && state.w_cbwrdata_sent && state.s_evict && state.w_evict_comp) && // wait for WriteBackFull(replacement operations) finish. It is unnecessary to wait for Evict to complete, since Evict does not need to read the DataStorage; hence, mpTask_refill could be fired without worrying whether the refilled data will replace the victim data in DataStorage
@@ -511,7 +544,15 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         (state.s_makeunique && state.w_comp && state.s_compack) && // wait for MakeUnique finish
         (state.s_aprobe && state.w_aprobeack) &&                   // wait for aProbe finish (cause by Acquire)
         (state.s_snpresp && state.w_snpresp_sent)                  // wait for snpresp finish (cause by realloc)
-    mpTask_refill.bits.opcode := MuxCase(DontCare, Seq((req.opcode === AcquireBlock) -> GrantData, (req.opcode === AcquirePerm) -> Grant, (req.opcode === Get) -> AccessAckData, (req.opcode === Hint) -> HintAck));
+    mpTask_refill.bits.opcode := MuxCase(
+        DontCare,
+        Seq(
+            (req.opcode === AcquireBlock)       -> GrantData,
+            (req.opcode === AcquirePerm)        -> Grant,
+            (req.opcode === Get || reqIsAtomic) -> AccessAckData,
+            (req.opcode === Hint)               -> HintAck
+        )
+    );
     mpTask_refill.bits.param := Mux(
         reqIsGet || reqIsPrefetch,
         0.U,       // Get -> AccessAckData
@@ -529,40 +570,45 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     mpTask_refill.bits.isCHIOpcode := false.B
     mpTask_refill.bits.readTempDs  := needTempDsData
     mpTask_refill.bits.isReplTask  := false.B
-    mpTask_refill.bits.updateDir   := !reqIsGet || reqIsGet && needProbe || !dirResp.hit
+    mpTask_refill.bits.updateDir   := Mux(reqIsAtomic, dirResp.hit, !reqIsGet || reqIsGet && needProbe || !dirResp.hit) // Atomic will invalidate the cacheline due to the incoming Snoop(nested transaction), the responsibility for updating the directory is transferred to this MSHR
     mpTask_refill.bits.tempDsDest := Mux(
         gotRefilledData || probeGotDirty || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty,
         /** For TRUNK state, dirty data will be written into [[DataStorage]] after receiving ProbeAckData */
         DataDestination.SourceD | DataDestination.DataStorage,
         DataDestination.SourceD
     )
+    mpTask_refill.bits.isAtomicAckOpt.foreach(_ := reqIsAtomic)
 
     val refillFinalState = Mux(
         reqIsGet,
         Mux(dirResp.hit, Mux(meta.isTip || meta.isTrunk, TIP, BRANCH), Mux(reqPromoteT, TIP, BRANCH)),
         Mux(reqPromoteT || reqNeedT, Mux(reqIsPrefetch, TIP, TRUNK), Mux(reqNeedB && meta.isTrunk && dirResp.hit, TIP, BRANCH))
     )
-    mpTask_refill.bits.newMetaEntry := DirectoryMetaEntryNoTag(
-        dirty = (gotDirty || releaseGotDirty || dirResp.hit && meta.isDirty) && refillFinalState =/= BRANCH /* Branch should not have dirty state */,
-        state = refillFinalState,
-        alias = Mux(
-            reqIsGet || reqIsPrefetch,
-            meta.aliasOpt.getOrElse(0.U),
-            req.aliasOpt.getOrElse(0.U)
-        ),
-        clientsOH = Mux(
-            reqIsPrefetch,
-            Mux(dirResp.hit, meta.clientsOH, Fill(nrClients, false.B)),
-            MuxCase(
-                Fill(nrClients, false.B),
-                Seq(
-                    (reqIsGet)                 -> Mux(dirResp.hit, meta.clientsOH, Fill(nrClients, false.B)),
-                    (reqIsAcquire && reqNeedT) -> reqClientOH,
-                    (reqIsAcquire && reqNeedB) -> Mux(dirResp.hit, meta.clientsOH | reqClientOH, reqClientOH)
+    mpTask_refill.bits.newMetaEntry := Mux(
+        reqIsAtomic,
+        DirectoryMetaEntryNoTag(),
+        DirectoryMetaEntryNoTag(
+            dirty = (gotDirty || releaseGotDirty || dirResp.hit && meta.isDirty) && refillFinalState =/= BRANCH /* Branch should not have dirty state */,
+            state = refillFinalState,
+            alias = Mux(
+                reqIsGet || reqIsPrefetch,
+                meta.aliasOpt.getOrElse(0.U),
+                req.aliasOpt.getOrElse(0.U)
+            ),
+            clientsOH = Mux(
+                reqIsPrefetch,
+                Mux(dirResp.hit, meta.clientsOH, Fill(nrClients, false.B)),
+                MuxCase(
+                    Fill(nrClients, false.B),
+                    Seq(
+                        (reqIsGet)                 -> Mux(dirResp.hit, meta.clientsOH, Fill(nrClients, false.B)),
+                        (reqIsAcquire && reqNeedT) -> reqClientOH,
+                        (reqIsAcquire && reqNeedB) -> Mux(dirResp.hit, meta.clientsOH | reqClientOH, reqClientOH)
+                    )
                 )
-            )
-        ),
-        fromPrefetchOpt = Some(reqIsPrefetch || dirResp.hit && meta.fromPrefetchOpt.getOrElse(false.B))
+            ),
+            fromPrefetchOpt = Some(reqIsPrefetch || dirResp.hit && meta.fromPrefetchOpt.getOrElse(false.B))
+        )
     )
     assert(
         !(io.tasks.mpTask.fire && mpTask_refill.valid && mpTask_refill.bits.opcode === AccessAckData && mpTask_refill.bits.updateDir && !dirResp.hit && mpTask_refill.bits.newMetaEntry.clientsOH.orR),
@@ -572,31 +618,38 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     )
 
     /** Send CopyBack task to [[MainPipe]], including: WriteBackFull */
-    mpTask_wbdata.valid            := !state.s_cbwrdata && state.s_snpresp && state.w_compdbid
+    mpTask_wbdata.valid            := !state.s_cbwrdata && state.s_snpresp && state.w_compdbid || !state.s_ncbwrdata_opt.getOrElse(true.B) && state.w_dbidresp_opt.getOrElse(true.B)
     mpTask_wbdata.bits.tgtID       := rspSrcID_wb
     mpTask_wbdata.bits.txnID       := rspDBID_wb
     mpTask_wbdata.bits.isCHIOpcode := true.B
-    mpTask_wbdata.bits.opcode      := CopyBackWrData
+    mpTask_wbdata.bits.opcode      := Mux(!state.s_ncbwrdata_opt.getOrElse(true.B), NonCopyBackWrData, CopyBackWrData)
     mpTask_wbdata.bits.channel     := CHIChannel.TXDAT
     mpTask_wbdata.bits.tag         := meta.tag
     mpTask_wbdata.bits.readTempDs  := false.B
     mpTask_wbdata.bits.updateDir   := false.B
-    mpTask_wbdata.bits.resp := Resp.setPassDirty( // In CopyBackWrData, resp indicates the cacheline state before issuing the WriteBackFull transaction.
-        MuxLookup(meta.state, Resp.I)(
-            Seq(
-                MixedState.BC  -> Resp.SC,
-                MixedState.BD  -> Resp.SD_PD,
-                MixedState.TC  -> Resp.UC,
-                MixedState.TTC -> Resp.UC,
-                MixedState.TD  -> Resp.UD_PD,
-                MixedState.TTD -> Resp.UD_PD
-            )
-        ),
-        (replGotDirty && !meta.state.isDirty || meta.state.isDirty) && !meta.isInvalid
+    mpTask_wbdata.bits.resp := Mux(
+        !state.s_ncbwrdata_opt.getOrElse(true.B),
+        Resp.I,
+        Resp.setPassDirty( // In CopyBackWrData, resp indicates the cacheline state before issuing the WriteBackFull transaction.
+            MuxLookup(meta.state, Resp.I)(
+                Seq(
+                    MixedState.BC  -> Resp.SC,
+                    MixedState.BD  -> Resp.SD_PD,
+                    MixedState.TC  -> Resp.UC,
+                    MixedState.TTC -> Resp.UC,
+                    MixedState.TD  -> Resp.UD_PD,
+                    MixedState.TTD -> Resp.UD_PD
+                )
+            ),
+            (replGotDirty && !meta.state.isDirty || meta.state.isDirty) && !meta.isInvalid
+        )
     )
+    mpTask_wbdata.bits.amoBufIdOpt.foreach(_ := req.amoBufIdOpt.get)
+    mpTask_wbdata.bits.maskOpt.foreach(_ := req.maskOpt.get)
     // CopyBackWrData can be in other state excpept Tip Dirty due to snoop nested.
     // assert(!(mpTask_wbdata.fire && meta.isBranch), "CopyBackWrData is only for Tip Dirty")
     assert(!(mpTask_wbdata.fire && mpTask_wbdata.bits.resp === Resp.I_PD), "CopyBackWrData should not be sent with the resp filed value of I_PD")
+    assert(!(!state.s_ncbwrdata_opt.getOrElse(true.B) && !state.s_cbwrdata))
 
     def stateToResp(rawState: UInt, dirty: Bool, passDirty: Bool) = {
         val resp = Mux(
@@ -709,7 +762,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         }
 
         when(mpTask_wbdata.valid) {
-            state.s_cbwrdata := true.B // TODO: Extra signals to indicate whether the cbwrdata is sent and leaves L2Cache.
+            when(io.tasks.mpTask.bits.opcode === CopyBackWrData) {
+                state.s_cbwrdata := true.B // TODO: Extra signals to indicate whether the cbwrdata is sent and leaves L2Cache.
+            }
+            when(io.tasks.mpTask.bits.opcode === NonCopyBackWrData) {
+                state.s_ncbwrdata_opt.foreach(_ := true.B)
+            }
         }
 
         when(mpTask_repl.valid) {
@@ -763,6 +821,11 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                 assert(state.s_compdat, "try to retry an already activated task!")
                 assert(valid, "retry on an invalid mshr!")
             }
+            when(io.retryTasks.stage2.bits.ncbwrdata_opt_s2.getOrElse(false.B)) {
+                state.w_ncbwrdata_sent_opt.get := false.B
+                assert(state.w_ncbwrdata_sent_opt.get, "try to retry an already activated task!")
+                assert(valid, "retry on an invalid mshr!")
+            }
         }.otherwise {
             when(io.retryTasks.stage2.bits.accessack_s2) {
                 state.w_accessack_sent := true.B
@@ -780,9 +843,13 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                 state.w_snpresp_sent := true.B
                 assert(!state.w_snpresp_sent)
             }
-            when(io.retryTasks.stage2.bits.compdat_opt_s2.getOrElse(false.B)) {
+            when(io.retryTasks.stage2.bits.compdat_opt_s2.getOrElse(false.B)) { // CompData for DCT
                 state.w_compdat_sent := true.B
                 assert(!state.w_compdat_sent)
+            }
+            when(io.retryTasks.stage2.bits.ncbwrdata_opt_s2.getOrElse(false.B)) { // NonCopyBackWriteData for Atomic transaction
+                state.w_ncbwrdata_sent_opt.get := true.B
+                assert(!state.w_ncbwrdata_sent_opt.get)
             }
         }
     }
@@ -848,17 +915,17 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         val isFirstData  = rxdat.bits.dataID === "b00".U
         val isSecondData = rxdat.bits.dataID === "b10".U
 
-        when(isFirstData) {
+        when(isFirstData && Mux(enableBypassAtomic.B, !reqIsAtomic, true.B)) {
             rxdatFirstData := true.B
             assert(!rxdatFirstData)
         }
 
-        when(isSecondData) {
+        when(isSecondData && Mux(enableBypassAtomic.B, !reqIsAtomic, true.B)) {
             rxdatSecondData := true.B
             assert(!rxdatSecondData)
         }
 
-        when(rxdatFirstData && isSecondData || rxdatSecondData && isFirstData) {
+        when(rxdatFirstData && isSecondData || rxdatSecondData && isFirstData || enableBypassAtomic.B && reqIsAtomic) {
             rxdatFirstData  := false.B
             rxdatSecondData := false.B
 
@@ -965,7 +1032,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             assert(lastReqState.orR)
         }
 
-        when(opcode =/= Comp && opcode =/= CompDBIDResp && opcode =/= RetryAck && opcode =/= PCrdGrant && opcode =/= RespSepData) {
+        // TODO: DBIRRespOrd for Atomic response
+        when(enableBypassAtomic.B && opcode === DBIDResp) {
+            state.w_dbidresp_opt.get := true.B
+        }
+
+        when(opcode =/= Comp && opcode =/= CompDBIDResp && opcode =/= RetryAck && opcode =/= PCrdGrant && opcode =/= RespSepData && opcode =/= DBIDResp) {
             assert(false.B, "Unknown rxrsp opcode => %x", opcode)
         }
     }
@@ -1361,7 +1433,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         val nested = io.nested.snoop
 
         when(nested.toN || nested.toB) {
-            assert(!(!state.s_compack && state.w_comp && state.w_compdat_first), "MSHR should not be nested by Snoop if the CompAck has not been sent by MSHR and the MSHR has already got CompData/Comp from downstream cache")
+            assert(
+                !(!state.s_compack && state.w_comp && state.w_compdat_first),
+                "MSHR should not be nested by Snoop if the CompAck has not been sent by MSHR and the MSHR has already got CompData/Comp from downstream cache"
+            )
         }
 
         when(nested.toN) {
@@ -1503,10 +1578,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             //      - Snoop should be processed normally after receiving all Data response packets.
             !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first || !state.s_cbwrdata || !state.w_evict_comp
         )
-    }
-    io.status.hasPendingRefill := hasPendingRefill
-    io.status.gotCompResp      := gotCompResp
+    } || reqIsAtomic && dirResp.hit
+    io.status.hasPendingRefill := hasPendingRefill // Used by SnoopBuffer only
+    io.status.gotCompResp      := gotCompResp      // Used by SnoopBuffer only
     io.status.gotDirtyData     := gotDirty || probeGotDirty && isAcquireProbe || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty
+
+    io.status.isAtomicOpt.foreach(_ := reqIsAtomic)
 
     val addr_reqTag_debug  = Cat(io.status.reqTag, io.status.set, 0.U(6.W))
     val addr_metaTag_debug = Cat(io.status.metaTag, io.status.set, 0.U(6.W))

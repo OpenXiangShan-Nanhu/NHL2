@@ -47,6 +47,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         val txdat_s2           = DecoupledIO(new CHIBundleDAT(chiBundleParams))
         val mshrEarlyNested_s2 = Output(new MshrEarlyNested)
 
+        val amoDataBufFreeOpt_s2 = if (enableBypassAtomic) Some(Valid(UInt(log2Ceil(nrAtomicDataBuffer).W))) else None
+
         /** Stage 3 */
         val dirResp_s3    = Flipped(ValidIO(new DirResp))
         val replResp_s3   = Flipped(ValidIO(new DirReplResp))
@@ -117,7 +119,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isSnpToN_s2    = CHIOpcodeSNP.isSnpToN(task_s2.opcode) && task_s2.isChannelB
     val isSnpToB_s2    = CHIOpcodeSNP.isSnpToB(task_s2.opcode) && task_s2.isChannelB
     val isSnpFwd_s2    = CHIOpcodeSNP.isSnpXFwd(task_s2.opcode) && task_s2.isChannelB && supportDCT.B
-    val isMshrTXDAT_s2 = task_s2.isMshrTask && !task_s2.isReplTask && task_s2.isCHIOpcode && task_s2.readTempDs && task_s2.channel === CHIChannel.TXDAT
+    val isMshrTXDAT_s2 = task_s2.isMshrTask && !task_s2.isReplTask && task_s2.isCHIOpcode && (task_s2.readTempDs || task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData /* For Atomic transaction */ ) && task_s2.channel === CHIChannel.TXDAT
     val isCompData_s2  = isMshrTXDAT_s2 && task_s2.opcode === CompData && supportDCT.B
     val isTXDAT_s2     = task_s2.isChannelB && task_s2.readTempDs && task_s2.snpHitReq && !isSnpFwd_s2
     val snpNeedMshr_s2 = isTXDAT_s2 && io.txdat_s2.valid && !io.txdat_s2.ready // If txdat is not ready, we should let this req enter mshr, the mshrId is task_s2.snpHitMshrId
@@ -130,7 +132,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         txdat_s2.bits.homeNID := task_s2.srcID
         txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
         txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        txdat_s2.bits.be      := Fill(beatBytes, 1.U)
+        txdat_s2.bits.be      := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
         txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
     } else {
         io.txdat_s2.valid        := valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && (isMshrTXDAT_s2 || isTXDAT_s2)
@@ -140,7 +142,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.txdat_s2.bits.homeNID := task_s2.srcID
         io.txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
         io.txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        io.txdat_s2.bits.be      := Fill(beatBytes, 1.U)
+        io.txdat_s2.bits.be      := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
         io.txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
     }
 
@@ -162,6 +164,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         retryTasks_s2.stage2.bits.cbwrdata_s2  := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
         retryTasks_s2.stage2.bits.snpresp_s2   := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
         retryTasks_s2.stage2.bits.compdat_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === CompData))
+        retryTasks_s2.stage2.bits.ncbwrdata_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === NonCopyBackWrData))
 
         assert(
             !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && retryTasks_s2.stage2.valid && retryTasks_s2.stage2.bits.isRetry_s2),
@@ -176,6 +179,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.retryTasks.stage2.bits.cbwrdata_s2  := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
         io.retryTasks.stage2.bits.snpresp_s2   := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
         io.retryTasks.stage2.bits.compdat_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === CompData))
+        io.retryTasks.stage2.bits.ncbwrdata_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === NonCopyBackWrData))
+
+        if (enableBypassAtomic) {
+            io.amoDataBufFreeOpt_s2.get.valid := task_s2.isCHIOpcode && (task_s2.opcode === NonCopyBackWrData) && io.retryTasks.stage2.valid && !io.retryTasks.stage2.bits.isRetry_s2
+            io.amoDataBufFreeOpt_s2.get.bits  := task_s2.amoBufIdOpt.get
+        }
 
         assert(
             !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && io.retryTasks.stage2.valid && io.retryTasks.stage2.bits.isRetry_s2),
@@ -225,6 +234,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.retryTasks                        <> retryTasks_s2e
         io.retryTasks.stage2.valid           := retryTasks_s2e.stage2.valid && valid_s2e
         io.retryTasks.stage2.bits.isRetry_s2 := sourcedStall_s2e || txdatStall_s2e || dropMshrTask_s2e
+
+        if (enableBypassAtomic) {
+            val amoBufIdOpt_s2e = RegEnable(task_s2.amoBufIdOpt.get, valid_s2)
+            io.amoDataBufFreeOpt_s2.get.valid := txdat_s2e.valid && (txdat_s2e.bits.opcode === NonCopyBackWrData) && io.retryTasks.stage2.valid && !io.retryTasks.stage2.bits.isRetry_s2
+            io.amoDataBufFreeOpt_s2.get.bits  := amoBufIdOpt_s2e
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -253,6 +268,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isAcquirePerm_s3  = task_s3.opcode === AcquirePerm && task_s3.isChannelA
     val isAcquire_s3      = isAcquireBlock_s3 || isAcquirePerm_s3
     val isPrefetch_s3     = task_s3.opcode === Hint && task_s3.isChannelA
+    val isAtomic_s3       = enableBypassAtomic.B && task_s3.isChannelA && (task_s3.opcode === ArithmeticData || task_s3.opcode === LogicalData)
     val cacheAlias_s3     = isAcquire_s3 && hit_s3 && isReqClient_s3 && meta_s3.aliasOpt.getOrElse(0.U) =/= task_s3.aliasOpt.getOrElse(0.U)
     val isSnpToN_s3       = CHIOpcodeSNP.isSnpToN(task_s3.opcode) && task_s3.isChannelB
     val isSnpToB_s3       = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && task_s3.isChannelB
@@ -266,7 +282,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val mpTask_snpresp_s3 = valid_s3 && task_s3.isMshrTask && task_s3.isCHIOpcode && (task_s3.opcode === SnpResp || task_s3.opcode === SnpRespData || task_s3.opcode === SnpRespDataFwded || task_s3.opcode === SnpRespFwded)
 
     val needReadOnMiss_a_s3   = !hit_s3 && (isGet_s3 || isAcquire_s3 || isPrefetch_s3)
-    val needReadOnHit_a_s3    = hit_s3 && (!isPrefetch_s3 && reqNeedT_s3 && meta_s3.isBranch) // send MakeUnique. Notice: Prefetch and hit while permission is not enough will not lead to permission upgrade.
+    val needReadOnHit_a_s3    = hit_s3 && (!isPrefetch_s3 && reqNeedT_s3 && meta_s3.isBranch || isAtomic_s3) // send MakeUnique. Notice: Prefetch and hit while permission is not enough will not lead to permission upgrade.
     val needReadDownward_a_s3 = task_s3.isChannelA && (needReadOnHit_a_s3 || needReadOnMiss_a_s3)
     val needProbeOnHit_a_s3 = if (nrClients > 1) {
         isGet_s3 && hit_s3 && meta_s3.isTrunk ||
@@ -278,9 +294,9 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
             /** Acquire.NtoB */
             meta_s3.isTrunk
-        )
+        ) || isAtomic_s3 && hit_s3 && meta_s3.clientsOH.orR
     } else {
-        isGet_s3 && hit_s3 && meta_s3.isTrunk || isAcquire_s3 && hit_s3 && cacheAlias_s3 && meta_s3.clientsOH.orR
+        isGet_s3 && hit_s3 && meta_s3.isTrunk || isAcquire_s3 && hit_s3 && cacheAlias_s3 && meta_s3.clientsOH.orR || isAtomic_s3 && hit_s3 && meta_s3.clientsOH.orR
     }
     val needProbeOnMiss_a_s3 = task_s3.isChannelA && !hit_s3 && meta_s3.clientsOH.orR
     val needProbe_a_s3       = task_s3.isChannelA && (hit_s3 && needProbeOnHit_a_s3 || !hit_s3 && needProbeOnMiss_a_s3)
@@ -293,7 +309,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
     val mshrRealloc_s3  = (snpNeedMshr_s3 || isFwdSnoop_s3) && task_s3.snpHitReq && canAllocMshr_s3
-    val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3) && canAllocMshr_s3
+    val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3 || isAtomic_s3) && canAllocMshr_s3
     val mshrAlloc_b_s3  = ((needProbe_b_s3 || needDCT_s3) && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
     val mshrAlloc_c_s3  = false.B                                                                                               // for inclusive cache, Release/ReleaseData always hit
     val mshrAlloc_lp_s3 = task_s3.isLowPowerTaskOpt.getOrElse(false.B) && dirResp_s3.hit
@@ -301,7 +317,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val mshrAllocStates = WireInit(0.U.asTypeOf(new MshrFsmState))
     mshrAllocStates.elements.foreach(_._2 := true.B)
-    when(task_s3.isChannelA) {
+    when(task_s3.isChannelA && !isAtomic_s3) {
 
         /** need to send replTask to [[Directory]] */
         mshrAllocStates.s_repl     := dirResp_s3.hit || !dirResp_s3.hit && dirResp_s3.meta.isInvalid && !dirResp_s3.needsRepl
@@ -355,6 +371,23 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         //     mshrAllocStates.w_rprobeack       := false.B
         //     mshrAllocStates.w_rprobeack_first := false.B
         // }
+    }
+
+    when(enableBypassAtomic.B && task_s3.isChannelA && isAtomic_s3) {
+        mshrAllocStates.s_atomic_opt.get         := false.B
+        mshrAllocStates.w_dbidresp_opt.get       := false.B
+        mshrAllocStates.s_ncbwrdata_opt.get      := false.B
+        mshrAllocStates.w_ncbwrdata_sent_opt.get := false.B
+        mshrAllocStates.w_compdat                := false.B
+
+        mshrAllocStates.s_accessack      := false.B
+        mshrAllocStates.w_accessack_sent := false.B
+
+        when(needProbeOnHit_a_s3) {
+            mshrAllocStates.s_aprobe          := false.B
+            mshrAllocStates.w_aprobeack       := false.B
+            mshrAllocStates.w_aprobeack_first := false.B
+        }
     }
 
     when(task_s3.isChannelB) {
@@ -640,9 +673,9 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val replRespNeedProbe_s3  = replRespValid_s3 && io.replResp_s3.bits.meta.clientsOH.orR || lowPowerNeedProbe_s3
     val replRespTag_s3        = Mux(lowPowerNeedProbe_s3, dirResp_s3.meta.tag, io.replResp_s3.bits.meta.tag)
     val replRespWayOH_s3      = Mux(lowPowerNeedProbe_s3, task_s3.wayOH, io.replResp_s3.bits.wayOH)
-    val allocMshrIdx_s3       = OHToUInt(io.mshrFreeOH_s3)                                          // TODO: consider OneHot?
+    val allocMshrIdx_s3       = OHToUInt(io.mshrFreeOH_s3)                                                         // TODO: consider OneHot?
     val needAllocDestSinkC_s3 = (needProbeOnHit_a_s3 || needProbe_b_s3 || needDCT_s3) && mshrAlloc_s3 || replRespNeedProbe_s3
-    val sinkDataToTempDS_s3   = needProbe_b_s3 || (isGet_s3 || isAcquire_s3) && needProbeOnHit_a_s3 // AcquireBlock need GrantData response, nested ReleaseData will be saved into the TempDataStorage
+    val sinkDataToTempDS_s3   = needProbe_b_s3 || (isGet_s3 || isAcquire_s3 || isAtomic_s3) && needProbeOnHit_a_s3 // AcquireBlock need GrantData response, nested ReleaseData will be saved into the TempDataStorage
 
     /**
      *  If L2 is TRUNK, L1 migh owns a dirty cacheline, any dirty data should be updated in L2. GrantData must contain clean cacheline data.
