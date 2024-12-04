@@ -8077,6 +8077,8 @@ local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release"
             reqArb.valid_s3:expect(1)
             reqArb.blockC_s1:expect(1)
             tl_c.ready:expect(0)
+        env.expect_happen_until(10, function () return tl_c:fire() end)
+            tl_c.valid:set(0)
         env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.ReleaseAck) end)
 
         env.negedge(100)
