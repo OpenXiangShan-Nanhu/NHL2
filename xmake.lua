@@ -159,12 +159,6 @@ generate_test_targets {
     }
 }
 
-generate_test_targets {
-    {
-        files = {"build/SimpleTL2CHIWrapper.v"}, top = "SimpleTL2CHIWrapper", lua_main = "src/main/lua/SimpleTL2CHI/SimpleTL2CHIWrapper.lua"
-    }
-}
-
 target("reformat")
     set_kind("phony")
     on_run(function (target)
