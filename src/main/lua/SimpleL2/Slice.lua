@@ -5910,10 +5910,12 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                             env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
                             chi_txrsp.bits.txnID:expect(txn_id)
                             chi_txrsp.bits.tgtID:expect(src_id)
+                            chi_txrsp.bits.fwdState:expect(CHIResp.SC)
                         elseif ret2src == 1 then
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
                             chi_txdat.bits.txnID:expect(txn_id)
                             chi_txdat.bits.tgtID:expect(src_id)
+                            chi_txdat.bits.fwdState:expect(CHIResp.SC)
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         else
                             assert(false)
@@ -5968,10 +5970,12 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                             env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
                             chi_txrsp.bits.txnID:expect(txn_id)
                             chi_txrsp.bits.tgtID:expect(src_id)
+                            chi_txrsp.bits.fwdState:expect(CHIResp.SC)
                         elseif ret2src == 1 then
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
                             chi_txdat.bits.txnID:expect(txn_id)
                             chi_txdat.bits.tgtID:expect(src_id)
+                            chi_txdat.bits.fwdState:expect(CHIResp.SC)
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         else
                             assert(false)
@@ -6024,6 +6028,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
                             chi_txdat.bits.txnID:expect(txn_id)
                             chi_txdat.bits.tgtID:expect(src_id)
+                            chi_txdat.bits.fwdState:expect(CHIResp.SC)
                             env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         else
                             assert(false)
@@ -6077,24 +6082,20 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                         if ret2src == 0 then
                             if probeack_data == true then
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xefef end)
                             else
                                 env.expect_happen_until(25, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
-                                chi_txrsp.bits.txnID:expect(txn_id)
-                                chi_txrsp.bits.tgtID:expect(src_id)
+                                chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id); chi_txrsp.bits.fwdState:expect(CHIResp.SC)
                             end
                         elseif ret2src == 1 then
                             if probeack_data == true then
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xefef end)
                             else
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                             end
                         else
@@ -6104,13 +6105,11 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     function ()
                         if probeack_data == true then
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                            chi_txdat.bits.txnID:expect(fwd_txn_id)
-                            chi_txdat.bits.tgtID:expect(fwd_nid)
+                            chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xefef end)
                         else
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                            chi_txdat.bits.txnID:expect(fwd_txn_id)
-                            chi_txdat.bits.tgtID:expect(fwd_nid)
+                            chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         end
                     end,
@@ -6172,25 +6171,21 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                         if ret2src == 0 then
                             if probeack_data == true then
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xefef end)
                             else
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                             end
                         elseif ret2src == 1 then
                             if probeack_data == true then
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xefef end)
                             else
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                                chi_txdat.bits.txnID:expect(txn_id)
-                                chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(25, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                             end
                         else
@@ -6200,13 +6195,11 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     function ()
                         if probeack_data == true then
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xabab end)
-                            chi_txdat.bits.txnID:expect(fwd_txn_id)
-                            chi_txdat.bits.tgtID:expect(fwd_nid)
+                            chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xefef end)
                         else
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                            chi_txdat.bits.txnID:expect(fwd_txn_id)
-                            chi_txdat.bits.tgtID:expect(fwd_nid)
+                            chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         end
                     end,
@@ -6328,10 +6321,10 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     function ()
                         if ret2src == 0 then
                             env.expect_happen_until(25, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.resp:is(CHIResp.I) end)
-                            chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id)
+                            chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id); chi_txrsp.bits.fwdState:expect(CHIResp.UC)
                         elseif ret2src == 1 then
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                            chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id)
+                            chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.UC)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                         else
                             assert(false)
@@ -6408,7 +6401,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                 verilua "appendTasks" {
                     function ()
                         env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                        chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id)
+                        chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.UC_PD)
                         env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                     end,
                     function ()
@@ -6485,15 +6478,15 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     function ()
                         if probeack_data == true then
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == expect_data_0 end)
-                            chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id)
+                            chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(expect_compdat_resp)
                             env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == expect_data_1 end)
                         else
                             if state == MixedState.TTC then
                                 env.expect_happen_until(20, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.resp:is(CHIResp.I) end)
-                                chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id)
+                                chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id); chi_txrsp.bits.fwdState:expect(expect_compdat_resp)
                             else
                                 env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == expect_data_0 end)
-                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(expect_compdat_resp)
                                 env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.I_PD) and chi_txdat.bits.data:get()[1] == expect_data_1 end)
                             end
                         end
@@ -6627,10 +6620,10 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                         function ()
                             if ret2src == 0 then
                                 env.expect_happen_until(15, function() return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(txn_id) and chi_txrsp.bits.resp:is(CHIResp.SC) end)
-                                chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id)
+                                chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.tgtID:expect(src_id); chi_txrsp.bits.fwdState:expect(CHIResp.SC)
                             elseif ret2src == 1 then
                                 env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id)
+                                chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.fwdState:expect(CHIResp.SC)
                                 env.expect_happen_until(20, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                             end
                         end,
@@ -7885,12 +7878,14 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
                 function ()
                     if not is_dirty then
                         env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(0) and chi_txrsp.bits.tgtID:is(4) and chi_txrsp.bits.resp:is(exp_resp) end)
+                        chi_txrsp.bits.fwdState:expect(CHIResp.I)
                     else
                         env.expect_happen_until(20, function () 
                             return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(0) and 
                                     chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
                                     chi_txdat.bits.data:is_hex_str("0xaccc")
                         end)
+                        chi_txdat.bits.fwdState:expect(CHIResp.I)
                         env.expect_happen_until(20, function () 
                             return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(0) and 
                                     chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 
@@ -7974,12 +7969,14 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
                 function ()
                     if not is_dirty then
                         env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(src_id) and chi_txrsp.bits.resp:is(exp_resp) end)
+                        chi_txrsp.bits.fwdState:expect(CHIResp.I)
                     else
                         env.expect_happen_until(20, function () 
                             return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
                                     chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
                                     chi_txdat.bits.data:is_hex_str(data_0) 
                         end)
+                        chi_txdat.bits.fwdState:expect(CHIResp.I)
                         env.expect_happen_until(20, function () 
                             return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
                                     chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 

@@ -125,25 +125,27 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val snpNeedMshr_s2 = isTXDAT_s2 && io.txdat_s2.valid && !io.txdat_s2.ready // If txdat is not ready, we should let this req enter mshr, the mshrId is task_s2.snpHitMshrId
     val txdat_s2       = WireInit(0.U.asTypeOf(Valid(new CHIBundleDAT(chiBundleParams))))
     if (enableDataECC) {
-        txdat_s2.valid        := valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && (isMshrTXDAT_s2 || isTXDAT_s2)
-        txdat_s2.bits         := DontCare
-        txdat_s2.bits.tgtID   := Mux(isTXDAT_s2, task_s2.srcID, task_s2.tgtID)
-        txdat_s2.bits.txnID   := task_s2.txnID
-        txdat_s2.bits.homeNID := task_s2.srcID
-        txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
-        txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        txdat_s2.bits.be      := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
-        txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
+        txdat_s2.valid         := valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && (isMshrTXDAT_s2 || isTXDAT_s2)
+        txdat_s2.bits          := DontCare
+        txdat_s2.bits.tgtID    := Mux(isTXDAT_s2, task_s2.srcID, task_s2.tgtID)
+        txdat_s2.bits.txnID    := task_s2.txnID
+        txdat_s2.bits.homeNID  := task_s2.srcID
+        txdat_s2.bits.dbID     := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
+        txdat_s2.bits.resp     := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
+        txdat_s2.bits.be       := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
+        txdat_s2.bits.opcode   := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
+        txdat_s2.bits.fwdState := task_s2.fwdState_opt.getOrElse(DontCare)
     } else {
-        io.txdat_s2.valid        := valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && (isMshrTXDAT_s2 || isTXDAT_s2)
-        io.txdat_s2.bits         := DontCare
-        io.txdat_s2.bits.tgtID   := Mux(isTXDAT_s2, task_s2.srcID, task_s2.tgtID)
-        io.txdat_s2.bits.txnID   := task_s2.txnID
-        io.txdat_s2.bits.homeNID := task_s2.srcID
-        io.txdat_s2.bits.dbID    := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
-        io.txdat_s2.bits.resp    := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        io.txdat_s2.bits.be      := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
-        io.txdat_s2.bits.opcode  := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
+        io.txdat_s2.valid         := valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && (isMshrTXDAT_s2 || isTXDAT_s2)
+        io.txdat_s2.bits          := DontCare
+        io.txdat_s2.bits.tgtID    := Mux(isTXDAT_s2, task_s2.srcID, task_s2.tgtID)
+        io.txdat_s2.bits.txnID    := task_s2.txnID
+        io.txdat_s2.bits.homeNID  := task_s2.srcID
+        io.txdat_s2.bits.dbID     := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
+        io.txdat_s2.bits.resp     := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
+        io.txdat_s2.bits.be       := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
+        io.txdat_s2.bits.opcode   := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
+        io.txdat_s2.bits.fwdState := task_s2.fwdState_opt.getOrElse(DontCare)
     }
 
     val dropMshrTask_s2 = if (optParam.mshrStallOnReqArb) {
@@ -860,13 +862,14 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.allocDestSinkC_s4.bits.wayOH
     )
 
-    io.txrsp_s4.valid        := valid_snpresp_s4 || valid_snpresp_mp_s4
-    io.txrsp_s4.bits.tgtID   := Mux(valid_snpresp_s4, task_s4.srcID, task_s4.tgtID)
-    io.txrsp_s4.bits.txnID   := task_s4.txnID
-    io.txrsp_s4.bits.dbID    := task_s4.txnID
-    io.txrsp_s4.bits.opcode  := Mux(valid_snpresp_s4, SnpResp, task_s4.opcode)
-    io.txrsp_s4.bits.resp    := snpResp_s4
-    io.txrsp_s4.bits.respErr := RespErr.NormalOkay
+    io.txrsp_s4.valid         := valid_snpresp_s4 || valid_snpresp_mp_s4
+    io.txrsp_s4.bits.tgtID    := Mux(valid_snpresp_s4, task_s4.srcID, task_s4.tgtID)
+    io.txrsp_s4.bits.txnID    := task_s4.txnID
+    io.txrsp_s4.bits.dbID     := task_s4.txnID
+    io.txrsp_s4.bits.opcode   := Mux(valid_snpresp_s4, SnpResp, task_s4.opcode)
+    io.txrsp_s4.bits.resp     := snpResp_s4
+    io.txrsp_s4.bits.respErr  := RespErr.NormalOkay
+    io.txrsp_s4.bits.fwdState := task_s4.fwdState_opt.getOrElse(DontCare)
 
     val txrspStall_s4 = io.txrsp_s4.valid && !io.txrsp_s4.ready
     io.retryTasks.mshrId_s4                := task_s4.mshrId
