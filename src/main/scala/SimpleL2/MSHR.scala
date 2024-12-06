@@ -712,7 +712,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val snprespNeedData = Mux(
         isRealloc,
         snpGotDirty || snpRetToSrc,
-        gotDirty || probeGotDirty || snpRetToSrc || meta.isDirty || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */
+        (gotDirty || probeGotDirty || meta.isDirty || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
     ) && !isSnpMakeInvalidX
     val hasValidProbeAck = VecInit(probeAckParams.zip(meta.clientsOH.asBools).map { case (probeAck, en) => en && probeAck =/= NtoN }).asUInt.orR
     mpTask_snpresp.valid            := !state.s_snpresp && state.w_sprobeack && state.s_compdat && state.w_compdat_sent
