@@ -706,7 +706,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val isSnpMakeInvalidX = CHIOpcodeSNP.isSnpMakeInvalidX(snpOpcode)
     val isSnpToB          = CHIOpcodeSNP.isSnpToB(snpOpcode)
     val isSnpToN          = CHIOpcodeSNP.isSnpToN(snpOpcode)
-    val snprespPassDirty  = !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || isRealloc && snpGotDirty
+    val snprespPassDirty  = Mux(isSnpFwd && CHIOpcodeSNP.isSnpUniqueX(snpOpcode), false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || isRealloc && snpGotDirty)
     val snprespFinalDirty = isSnpOnceX && meta.isDirty
     val snprespFinalState = Mux(isSnpOnceX, meta.rawState, Mux(isSnpToB, BRANCH, INVALID))
     val snprespNeedData = Mux(
