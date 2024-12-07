@@ -229,7 +229,7 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
             val rdWayEn = rdWayOH_s3(wayIdx)
 
             srams.zipWithIndex.foreach { case (sram, groupIdx) =>
-                sram.io.req.valid      := wen_s3 && wrWayEn
+                sram.io.req.valid      := wen_s3 && wrWayEn || ren_s3 && rdWayEn
                 sram.io.req.bits.write := wen_s3
                 sram.io.req.bits.addr  := Mux(wen_s3, wrSet_s3, rdSet_s3)
                 sram.io.req.bits.mask.foreach(_ := 1.U)
