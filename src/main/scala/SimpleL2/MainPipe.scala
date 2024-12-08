@@ -22,11 +22,12 @@ class MpStageInfo(implicit p: Parameters) extends L2Bundle {
     val tag      = UInt(tagBits.W)
 }
 
-class MpStatus4567()(implicit p: Parameters) extends L2Bundle {
+class MpStatus45678()(implicit p: Parameters) extends L2Bundle {
     val stage4 = new MpStageInfo
     val stage5 = new MpStageInfo
     val stage6 = new MpStageInfo
     val stage7 = new MpStageInfo
+    val stage8 = new MpStageInfo
 }
 
 class MpMshrRetryTasks()(implicit p: Parameters) extends L2Bundle {
@@ -70,12 +71,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         val sourceD_s4          = DecoupledIO(new TaskBundle)                    // SourceD for non-data resp
         val txrsp_s4            = DecoupledIO(new CHIBundleRSP(chiBundleParams)) // Snp* hit and does not require data will be sent to txrsp_s4
 
-        /** Stage 6 & Stage 7*/
-        val sourceD_s6s7 = DecoupledIO(new TaskBundle) // Acquire* hit will send SourceD resp
-        val txdat_s6s7   = DecoupledIO(new CHIBundleDAT(chiBundleParams))
+        /** Stage 7 & Stage 8 */
+        val sourceD_s7s8 = DecoupledIO(new TaskBundle) // Acquire* hit will send SourceD resp
+        val txdat_s7s8   = DecoupledIO(new CHIBundleDAT(chiBundleParams))
 
         /** Other status signals */
-        val status           = Output(new MpStatus4567) // to SoruceB + ReqArb
+        val status           = Output(new MpStatus45678) // to SoruceB + ReqArb
         val retryTasks       = new MpMshrRetryTasks
         val nonDataRespCnt   = Input(UInt(log2Ceil(nrNonDataSourceDEntry + 1).W))
         val txrspCnt         = Input(UInt(log2Ceil(nrTXRSPEntry + 1).W))
@@ -84,8 +85,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     io <> DontCare
 
-    val ready_s7             = WireInit(false.B)
-    val hasValidDataBuf_s6s7 = WireInit(false.B)
+    val ready_s8             = WireInit(false.B)
+    val hasValidDataBuf_s7s8 = WireInit(false.B)
 
     // -----------------------------------------------------------------------------------------
     // Stage 2
@@ -522,27 +523,27 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     )
     val snpNeedData_mshr_s3 = mpTask_snpresp_s3 && !task_s3.readTempDs && task_s3.channel === CHIChannel.TXDAT
     val snpChnlReqOK_s3     = !task_s3.isMshrTask && !(task_s3.snpHitReq && task_s3.readTempDs) && isSnoop_s3 && task_s3.isChannelB && !mshrAlloc_b_s3 && !mshrRealloc_s3 && valid_s3 // Can ack snoop request without allocating MSHR, Snoop miss did not need mshr, response with SnpResp_I
-    val snpReplay_s3        = task_s3.isChannelB && !mshrAlloc_b_s3 && (!snpNeedData_b_s3 && txrspWillFull_s3 || snpNeedData_b_s3 && !hasValidDataBuf_s6s7) && valid_s3
-    val snpRetry_s3         = task_s3.isMshrTask && snpNeedData_mshr_s3 && !hasValidDataBuf_s6s7 && valid_s3
+    val snpReplay_s3        = task_s3.isChannelB && !mshrAlloc_b_s3 && (!snpNeedData_b_s3 && txrspWillFull_s3 || snpNeedData_b_s3 && !hasValidDataBuf_s7s8) && valid_s3
+    val snpRetry_s3         = task_s3.isMshrTask && snpNeedData_mshr_s3 && !hasValidDataBuf_s7s8 && valid_s3
     snpReplay_dup_s3 := snpReplay_s3
 
     /** Deal with acquire/get reqeuests */
     val noSpaceForNonDataResp_s3 = io.nonDataRespCnt >= (nrNonDataSourceDEntry - 1).U // No space for ReleaseAck to send out to SourceD
-    val acquireReplay_s3         = !mshrAlloc_s3 && ((isAcquireBlock_s3 || isGet_s3) && !hasValidDataBuf_s6s7 || isAcquirePerm_s3 && noSpaceForNonDataResp_s3) && valid_s3
-    val getReplay_s3             = isGet_s3 && !mshrAlloc_s3 && !hasValidDataBuf_s6s7 && valid_s3
+    val acquireReplay_s3         = !mshrAlloc_s3 && ((isAcquireBlock_s3 || isGet_s3) && !hasValidDataBuf_s7s8 || isAcquirePerm_s3 && noSpaceForNonDataResp_s3) && valid_s3
+    val getReplay_s3             = isGet_s3 && !mshrAlloc_s3 && !hasValidDataBuf_s7s8 && valid_s3
 
     /** Deal with mshr cbwrdata */
     val isCopyBack_s3      = task_s3.isMshrTask && task_s3.isCHIOpcode && task_s3.opcode === CopyBackWrData
-    val copyBackRetry_s3   = isCopyBack_s3 && !hasValidDataBuf_s6s7 && valid_s3
+    val copyBackRetry_s3   = isCopyBack_s3 && !hasValidDataBuf_s7s8 && valid_s3
     val copyBackIsValid_s3 = isCopyBack_s3 && task_s3.resp =/= Resp.I
 
     /** Deal with mshr refill */
     val refillNeedData_mp_s3 = mpTask_refill_s3 && (task_s3.opcode === GrantData || task_s3.opcode === AccessAckData)
-    val refillRetry_s3       = mpTask_refill_s3 && Mux(refillNeedData_mp_s3, !hasValidDataBuf_s6s7, noSpaceForNonDataResp_s3)
+    val refillRetry_s3       = mpTask_refill_s3 && Mux(refillNeedData_mp_s3, !hasValidDataBuf_s7s8, noSpaceForNonDataResp_s3)
 
     /** Deal with mshr compdata */
     val isCompData_s3    = task_s3.isMshrTask && task_s3.isCHIOpcode && task_s3.opcode === CompData && supportDCT.B
-    val compDataRetry_s3 = isCompData_s3 && !hasValidDataBuf_s6s7 && valid_s3 && supportDCT.B
+    val compDataRetry_s3 = isCompData_s3 && !hasValidDataBuf_s7s8 && valid_s3 && supportDCT.B
 
     /** 
      * Get/Prefetch is not required to writeback [[Directory]].
@@ -641,12 +642,20 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val dirWrWayOH_s3_dly2    = RegEnable(dirWrWayOH_s3_dly1, dirWen_c_s3_dly1)
     val dirWrClientOH_s3_dly2 = RegEnable(dirWrClientOH_s3_dly1, dirWen_c_s3_dly1)
 
+    val dirWen_c_s3_dly3      = RegNext(dirWen_c_s3_dly2, false.B)
+    val dirWrSet_s3_dly3      = RegEnable(dirWrSet_s3_dly2, dirWen_c_s3_dly2)
+    val dirWrWayOH_s3_dly3    = RegEnable(dirWrWayOH_s3_dly1, dirWen_c_s3_dly2)
+    val dirWrClientOH_s3_dly3 = RegEnable(dirWrClientOH_s3_dly1, dirWen_c_s3_dly2)
+
     when(task_s3.isMshrTask && task_s3.updateDir) {
         when(dirWen_c_s3_dly1 && task_s3.set === dirWrSet_s3_dly1 && task_s3.wayOH === dirWrWayOH_s3_dly1) {
             newMeta_mshr_s3.clientsOH := task_s3.newMetaEntry.clientsOH & dirWrClientOH_s3_dly1
         }
         when(dirWen_c_s3_dly2 && task_s3.set === dirWrSet_s3_dly2 && task_s3.wayOH === dirWrWayOH_s3_dly2) {
             newMeta_mshr_s3.clientsOH := task_s3.newMetaEntry.clientsOH & dirWrClientOH_s3_dly2
+        }
+        when(dirWen_c_s3_dly3 && task_s3.set === dirWrSet_s3_dly3 && task_s3.wayOH === dirWrWayOH_s3_dly3) {
+            newMeta_mshr_s3.clientsOH := task_s3.newMetaEntry.clientsOH & dirWrClientOH_s3_dly3
         }
     }
 
@@ -917,59 +926,69 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     // -----------------------------------------------------------------------------------------
     // Stage 6
     // -----------------------------------------------------------------------------------------
-    val valid_s7_dup     = WireInit(false.B)
-    val isSourceD_s7_dup = WireInit(false.B)
-    val isTXDAT_s7_dup   = WireInit(false.B)
-
-    val task_s6      = RegEnable(task_s5, 0.U.asTypeOf(new TaskBundle), fire_s5)
-    val valid_s6     = RegInit(false.B)
-    val isSourceD_s6 = !task_s6.isCHIOpcode
-    val isTXDAT_s6   = task_s6.isCHIOpcode
-    val fire_s6      = valid_s6 && ready_s7 && (io.sourceD_s6s7.valid && !io.sourceD_s6s7.ready || io.txdat_s6s7.valid && !io.txdat_s6s7.ready)
-
-    when(fire_s5) {
-        valid_s6 := true.B
-        assert(!(valid_s7_dup && isSourceD_s7_dup && valid_s6 && isSourceD_s6), "stage6 is full!")
-        assert(!(valid_s7_dup && isTXDAT_s7_dup && valid_s6 && isTXDAT_s6), "stage6 is full!")
-    }.elsewhen((io.sourceD_s6s7.fire && isSourceD_s6 && !(valid_s7_dup && isSourceD_s7_dup) || io.txdat_s6s7.fire && isTXDAT_s6 && !(valid_s7_dup && isTXDAT_s7_dup)) && !fire_s5 && valid_s6) {
-        valid_s6 := false.B
-    }.elsewhen(fire_s6 && !fire_s5) {
-        valid_s6 := false.B
-    }
+    val task_s6         = RegEnable(task_s5, 0.U.asTypeOf(new TaskBundle), fire_s5)
+    val valid_s6        = RegNext(fire_s5, false.B)
+    val needsDataBuf_s6 = RegEnable(needsDataBuf_s5, false.B, fire_s5)
+    val isSourceD_s6    = !task_s6.isCHIOpcode
+    val fire_s6         = valid_s6
 
     // -----------------------------------------------------------------------------------------
     // Stage 7
     // -----------------------------------------------------------------------------------------
+    val valid_s8_dup     = WireInit(false.B)
+    val isSourceD_s8_dup = WireInit(false.B)
+    val isTXDAT_s8_dup   = WireInit(false.B)
+
     val task_s7      = RegEnable(task_s6, 0.U.asTypeOf(new TaskBundle), fire_s6)
     val valid_s7     = RegInit(false.B)
     val isSourceD_s7 = !task_s7.isCHIOpcode
     val isTXDAT_s7   = task_s7.isCHIOpcode
-    val fire_s7      = io.sourceD_s6s7.fire && isSourceD_s7 || io.txdat_s6s7.fire && isTXDAT_s7
-    valid_s7_dup     := valid_s7
-    isSourceD_s7_dup := isSourceD_s7
-    isTXDAT_s7_dup   := isTXDAT_s7
-    ready_s7         := !valid_s7
+    val fire_s7      = valid_s7 && ready_s8 && (io.sourceD_s7s8.valid && !io.sourceD_s7s8.ready || io.txdat_s7s8.valid && !io.txdat_s7s8.ready)
 
     when(fire_s6) {
         valid_s7 := true.B
-    }.elsewhen(fire_s7 && valid_s7 && !fire_s6) {
+        assert(!(valid_s8_dup && isSourceD_s8_dup && valid_s7 && isSourceD_s7), "stage7 is full!")
+        assert(!(valid_s8_dup && isTXDAT_s8_dup && valid_s7 && isTXDAT_s7), "stage7 is full!")
+    }.elsewhen((io.sourceD_s7s8.fire && isSourceD_s7 && !(valid_s8_dup && isSourceD_s8_dup) || io.txdat_s7s8.fire && isTXDAT_s7 && !(valid_s8_dup && isTXDAT_s8_dup)) && !fire_s6 && valid_s7) {
+        valid_s7 := false.B
+    }.elsewhen(fire_s7 && !fire_s6) {
         valid_s7 := false.B
     }
 
-    io.sourceD_s6s7.valid := valid_s6 && isSourceD_s6 || valid_s7 && isSourceD_s7
-    io.sourceD_s6s7.bits  := Mux(valid_s7 && isSourceD_s7, task_s7, task_s6)
+    // -----------------------------------------------------------------------------------------
+    // Stage 8
+    // -----------------------------------------------------------------------------------------
+    val task_s8      = RegEnable(task_s7, 0.U.asTypeOf(new TaskBundle), fire_s7)
+    val valid_s8     = RegInit(false.B)
+    val isSourceD_s8 = !task_s8.isCHIOpcode
+    val isTXDAT_s8   = task_s8.isCHIOpcode
+    val fire_s8      = io.sourceD_s7s8.fire && isSourceD_s8 || io.txdat_s7s8.fire && isTXDAT_s8
 
-    io.txdat_s6s7.valid       := valid_s6 && isTXDAT_s6 || valid_s7 && isTXDAT_s7
-    io.txdat_s6s7.bits        := DontCare
-    io.txdat_s6s7.bits.tgtID  := Mux(valid_s7 && isTXDAT_s7, task_s7.tgtID, task_s6.tgtID)
-    io.txdat_s6s7.bits.txnID  := Mux(valid_s7 && isTXDAT_s7, task_s7.txnID, task_s6.txnID)
-    io.txdat_s6s7.bits.dbID   := Mux(valid_s7 && isTXDAT_s7, task_s7.txnID, task_s6.txnID)
-    io.txdat_s6s7.bits.be     := Fill(beatBytes, 1.U)
-    io.txdat_s6s7.bits.opcode := Mux(valid_s7 && isTXDAT_s7, task_s7.opcode, task_s6.opcode)
-    io.txdat_s6s7.bits.resp   := Mux(valid_s7 && isTXDAT_s7, task_s7.resp, task_s6.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.
+    valid_s8_dup     := valid_s8
+    isSourceD_s8_dup := isSourceD_s8
+    isTXDAT_s8_dup   := isTXDAT_s8
+    ready_s8         := !valid_s8
 
-    val mayUseDataBufCnt = PopCount(Cat(needsDataBuf_s4, needsDataBuf_s5, valid_s6, valid_s7))
-    hasValidDataBuf_s6s7 := mayUseDataBufCnt < 2.U
+    when(fire_s7) {
+        valid_s8 := true.B
+    }.elsewhen(fire_s8 && valid_s8 && !fire_s7) {
+        valid_s8 := false.B
+    }
+
+    io.sourceD_s7s8.valid := valid_s7 && isSourceD_s7 || valid_s8 && isSourceD_s8
+    io.sourceD_s7s8.bits  := Mux(valid_s8 && isSourceD_s8, task_s8, task_s7)
+
+    io.txdat_s7s8.valid       := valid_s7 && isTXDAT_s7 || valid_s8 && isTXDAT_s8
+    io.txdat_s7s8.bits        := DontCare
+    io.txdat_s7s8.bits.tgtID  := Mux(valid_s8 && isTXDAT_s8, task_s8.tgtID, task_s7.tgtID)
+    io.txdat_s7s8.bits.txnID  := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
+    io.txdat_s7s8.bits.dbID   := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
+    io.txdat_s7s8.bits.be     := Fill(beatBytes, 1.U)
+    io.txdat_s7s8.bits.opcode := Mux(valid_s8 && isTXDAT_s8, task_s8.opcode, task_s7.opcode)
+    io.txdat_s7s8.bits.resp   := Mux(valid_s8 && isTXDAT_s8, task_s8.resp, task_s7.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.
+
+    val mayUseDataBufCnt = PopCount(Cat(needsDataBuf_s4, needsDataBuf_s5, needsDataBuf_s6, valid_s7, valid_s8))
+    hasValidDataBuf_s7s8 := mayUseDataBufCnt < 2.U // stage7 and stage8 has data buffer to be used
 
     /**
      * Output status info for [[SourceB]] or other modules.
@@ -994,6 +1013,11 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.status.stage7.set      := task_s7.set
     io.status.stage7.tag      := task_s7.tag
     io.status.stage7.isRefill := isSourceD_s7 && (task_s7.opcode === Grant || task_s7.opcode === GrantData || task_s7.opcode === AccessAckData)
+
+    io.status.stage8.valid    := valid_s8
+    io.status.stage8.set      := task_s8.set
+    io.status.stage8.tag      := task_s8.tag
+    io.status.stage8.isRefill := isSourceD_s8 && (task_s8.opcode === Grant || task_s8.opcode === GrantData || task_s8.opcode === AccessAckData)
 
     /**
      * Debug signals.

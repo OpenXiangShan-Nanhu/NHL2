@@ -104,7 +104,7 @@ generate_test_targets {
         files = {"build/Directory/*.sv"}, top = "Directory", lua_main = "src/main/lua/SimpleL2/Directory.lua"
     },
     {
-        files = {"build/DataStorage/*.sv"}, top = "DataStorage", lua_main = "src/main/lua/SimpleL2/DataStorage.lua"
+        files = {"build/DataStorage/*.sv"}, top = "DataStorage", lua_main = "src/main/lua/SimpleL2/DataStorage.lua", sim = "vcs"
     },
     {
         files = {"build/MainPipe.v"}, top = "MainPipe", lua_main = "src/main/lua/SimpleL2/MainPipe.lua"

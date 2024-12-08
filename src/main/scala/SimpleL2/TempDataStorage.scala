@@ -50,8 +50,8 @@ object TempDataEntry {
 class TempDataStorage()(implicit p: Parameters) extends L2Module {
     val io = IO(new Bundle {
         val fromDS = new Bundle {
-            val eccVec_s5 = Input(Vec(blockBytes / eccProtectBytes, UInt(dataEccBits.W)))
-            val write_s5  = Flipped(ValidIO(new TempDataWrite))
+            val eccVec_s6 = Input(Vec(blockBytes / eccProtectBytes, UInt(dataEccBits.W)))
+            val write_s6  = Flipped(ValidIO(new TempDataWrite))
         }
 
         val fromRXDAT = new Bundle {
@@ -130,16 +130,16 @@ class TempDataStorage()(implicit p: Parameters) extends L2Module {
         VecInit(data.asTypeOf(Vec(blockBytes / eccProtectBytes, UInt(eccProtectBits.W))).map(genEcc))
     }
 
-    val wen_ds_ts1      = io.fromDS.write_s5.valid
+    val wen_ds_ts1      = io.fromDS.write_s6.valid
     val wen_rxdat_ts1   = io.fromRXDAT.write.valid
     val wMsk_rxdat_ts1  = io.fromRXDAT.write.bits.mask // Only RXDAT has valid mask beacuse RXDAT needs to deal with out-of-order refill data, other sources are all full mask
     val wen_sinkc_ts1   = full_ts1
     val wIdx_sinkc_ts1  = RegEnable(wIdx_sinkc_ts0, fire_ts0)
     val wData_sinkc_ts1 = RegEnable(wData_sinkc_ts0, fire_ts0)
     val wen_ts1         = wen_ds_ts1 || wen_rxdat_ts1 || wen_sinkc_ts1
-    val wIdx_ts1        = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.write_s5.bits.idx, wen_rxdat_ts1 -> io.fromRXDAT.write.bits.idx, wen_sinkc_ts1 -> wIdx_sinkc_ts1))
-    val wData_ts1       = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.write_s5.bits.data, wen_rxdat_ts1 -> io.fromRXDAT.write.bits.data, wen_sinkc_ts1 -> wData_sinkc_ts1))
-    val wEcc_ts1        = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.eccVec_s5.asUInt, wen_rxdat_ts1 -> genEccVec(io.fromRXDAT.write.bits.data).asUInt, wen_sinkc_ts1 -> genEccVec(wData_sinkc_ts1).asUInt))
+    val wIdx_ts1        = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.write_s6.bits.idx, wen_rxdat_ts1 -> io.fromRXDAT.write.bits.idx, wen_sinkc_ts1 -> wIdx_sinkc_ts1))
+    val wData_ts1       = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.write_s6.bits.data, wen_rxdat_ts1 -> io.fromRXDAT.write.bits.data, wen_sinkc_ts1 -> wData_sinkc_ts1))
+    val wEcc_ts1        = PriorityMux(Seq(wen_ds_ts1 -> io.fromDS.eccVec_s6.asUInt, wen_rxdat_ts1 -> genEccVec(io.fromRXDAT.write.bits.data).asUInt, wen_sinkc_ts1 -> genEccVec(wData_sinkc_ts1).asUInt))
 
     when(fire_ts0) {
         full_ts1 := true.B
@@ -157,7 +157,7 @@ class TempDataStorage()(implicit p: Parameters) extends L2Module {
 
     /**
      * Priority:
-     *          fromDS.write_s5 > fromRXDAT.write > fromSinkC.write > fromReqArb.read_s1
+     *          fromDS.write_s6 > fromRXDAT.write > fromSinkC.write > fromReqArb.read_s1
      */
     io.fromReqArb.read_s1.ready := !wen_ds_ts1 && !wen_sinkc_ts1 && !wen_rxdat_ts1
     io.fromRXDAT.write.ready    := !wen_ds_ts1

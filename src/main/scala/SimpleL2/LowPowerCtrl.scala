@@ -19,9 +19,9 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
     val io = IO(new Bundle {
         val lowPower = new LowPowerIO
 
-        val mpStatus_s123  = Input(new MpStatus123)
-        val mpStatus_s4567 = Input(new MpStatus4567)
-        val mshrStatus     = Vec(nrMSHR, Input(new MshrStatus))
+        val mpStatus_s123   = Input(new MpStatus123)
+        val mpStatus_s45678 = Input(new MpStatus45678)
+        val mshrStatus      = Vec(nrMSHR, Input(new MshrStatus))
 
         /** Evict request sent to [[RequestArbiter]] */
         val toReqArb = DecoupledIO(new LowPowerToReqArb)
@@ -37,7 +37,7 @@ class LowPowerCtrl(implicit p: Parameters) extends L2Module {
     val SUCCESS = true.B
     val FAIL    = false.B
 
-    val mpHasRequest = VecInit(io.mpStatus_s123.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR || VecInit(io.mpStatus_s4567.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR
+    val mpHasRequest = VecInit(io.mpStatus_s123.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR || VecInit(io.mpStatus_s45678.elements.map { case (_: String, stage: MpStageInfo) => stage.valid }.toSeq).asUInt.orR
     val mshrValidVec = VecInit(io.mshrStatus.map(_.valid)).asUInt
     val mshrValidCnt = PopCount(mshrValidVec)
     val mshrAllFree  = !mshrValidVec.orR
