@@ -44,8 +44,8 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
         }
 
         val toTempDS = new Bundle {
-            val eccVec_s5 = Output(Vec(blockBytes / eccProtectBytes, UInt(dataEccBits.W)))
-            val write_s5  = ValidIO(new TempDataWrite)
+            val eccVec_s6 = Output(Vec(blockBytes / eccProtectBytes, UInt(dataEccBits.W)))
+            val write_s6  = ValidIO(new TempDataWrite)
         }
 
         /** 
@@ -53,11 +53,11 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
          * next level cache.
          */
         val toTXDAT = new Bundle {
-            val dsResp_s6s7 = DecoupledIO(new DSResp)
+            val dsResp_s7s8 = DecoupledIO(new DSResp)
         }
 
         val toSourceD = new Bundle {
-            val dsResp_s6s7 = DecoupledIO(new DSResp)
+            val dsResp_s7s8 = DecoupledIO(new DSResp)
         }
 
         /** 
@@ -69,7 +69,7 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
         val sramRetentionOpt = if (hasLowPowerInterface) Some(Input(Bool())) else None
     })
 
-    val ready_s7    = WireInit(false.B)
+    val ready_s8    = WireInit(false.B)
     val sramReady   = WireInit(false.B)
     val wayConflict = WireInit(false.B)
 
@@ -202,17 +202,35 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
     _assert(PopCount(Cat(wen_sinkC_s3, wen_refill_s3)) <= 1.U, "multiple write! wen_sinkC_s3:%d, wen_refill_s3:%d", wen_sinkC_s3, wen_refill_s3)
     assert(!(wen_s3 && ren_s3 && wayConflict), "read and write at the same time with wayConflict! wen_sinkC_s3:%d, wen_refill_s3:%d", wen_sinkC_s3, wen_refill_s3)
 
+    io.dsWrite_s2.ready := !wen_s3 && !ren_s3
+
+    // -----------------------------------------------------------------------------------------
+    // Stage 4 (read setup)
+    // -----------------------------------------------------------------------------------------
+    val valid_s4 = RegNext(fire_s3, false.B)
+
+    val ren_s4       = valid_s4 && RegEnable(ren_s3, false.B, fire_s3)
+    val rdWayOH_s4   = RegEnable(rdWayOH_s3, ren_s3)
+    val rdSet_s4     = RegEnable(rdSet_s3, ren_s3)
+    val rdDest_s4    = RegEnable(rdDest_s3, ren_s3)
+    val rdMshrIdx_s4 = RegEnable(rdMshrIdx_s3, ren_s3)
+
+    val wen_s4     = valid_s4 && RegEnable(wen_s3, false.B, fire_s3)
+    val wrWayOH_s4 = RegEnable(wrWayOH_s3, wen_s3)
+    val wrSet_s4   = RegEnable(wrSet_s3, wen_s3)
+    val wrData_s4  = RegEnable(wrData_s3, wen_s3)
+
     if (optParam.useFlatDataSRAM) {
-        val wrIdx_s3 = Cat(OHToUInt(wrWayOH_s3), wrSet_s3)
-        val rdIdx_s3 = Cat(OHToUInt(rdWayOH_s3), rdSet_s3)
+        val wrIdx_s4 = Cat(OHToUInt(wrWayOH_s4), wrSet_s4)
+        val rdIdx_s4 = Cat(OHToUInt(rdWayOH_s4), rdSet_s4)
 
         dataSRAMs_flat.get.zipWithIndex.foreach { case (sram, groupIdx) =>
-            sram.io.req.valid      := wen_s3 || ren_s3
-            sram.io.req.bits.write := wen_s3
-            sram.io.req.bits.addr  := Mux(wen_s3, wrIdx_s3, rdIdx_s3)
+            sram.io.req.valid      := wen_s4 || ren_s4
+            sram.io.req.bits.write := wen_s4
+            sram.io.req.bits.addr  := Mux(wen_s4, wrIdx_s4, rdIdx_s4)
             sram.io.req.bits.mask.foreach(_ := 1.U)
             (0 until (groupBytes / eccProtectBytes)).foreach { i =>
-                val wrGroupDatas = wrData_s3(groupBytes * 8 * (groupIdx + 1) - 1, groupBytes * 8 * groupIdx)
+                val wrGroupDatas = wrData_s4(groupBytes * 8 * (groupIdx + 1) - 1, groupBytes * 8 * groupIdx)
                 sram.io.req.bits.data(0)(i) := dataCode.encode(wrGroupDatas(eccProtectBytes * 8 * (i + 1) - 1, eccProtectBytes * 8 * i))
             }
 
@@ -225,16 +243,16 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
         }
     } else {
         dataSRAMs.get.zipWithIndex.foreach { case (srams, wayIdx) =>
-            val wrWayEn = wrWayOH_s3(wayIdx)
-            val rdWayEn = rdWayOH_s3(wayIdx)
+            val wrWayEn = wrWayOH_s4(wayIdx)
+            val rdWayEn = rdWayOH_s4(wayIdx)
 
             srams.zipWithIndex.foreach { case (sram, groupIdx) =>
-                sram.io.req.valid      := wen_s3 && wrWayEn || ren_s3 && rdWayEn
-                sram.io.req.bits.write := wen_s3
-                sram.io.req.bits.addr  := Mux(wen_s3, wrSet_s3, rdSet_s3)
+                sram.io.req.valid      := wen_s4 && wrWayEn || ren_s4 && rdWayEn
+                sram.io.req.bits.write := wen_s4
+                sram.io.req.bits.addr  := Mux(wen_s4, wrSet_s4, rdSet_s4)
                 sram.io.req.bits.mask.foreach(_ := 1.U)
                 (0 until (groupBytes / eccProtectBytes)).foreach { i =>
-                    val wrGroupDatas = wrData_s3(groupBytes * 8 * (groupIdx + 1) - 1, groupBytes * 8 * groupIdx)
+                    val wrGroupDatas = wrData_s4(groupBytes * 8 * (groupIdx + 1) - 1, groupBytes * 8 * groupIdx)
                     sram.io.req.bits.data(0)(i) := dataCode.encode(wrGroupDatas(eccProtectBytes * 8 * (i + 1) - 1, eccProtectBytes * 8 * i))
                 }
 
@@ -248,23 +266,23 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
         }
     }
 
-    io.dsWrite_s2.ready := !wen_s3 && !ren_s3
-
     // -----------------------------------------------------------------------------------------
-    // Stage 4 (read accept)
+    // Stage 5 (read accept)
     // -----------------------------------------------------------------------------------------
-    val valid_s4     = RegNext(fire_s3, false.B)
-    val wen_s4       = valid_s4 && RegEnable(wen_s3, false.B, fire_s3)
-    val ren_s4       = valid_s4 && RegEnable(ren_s3, false.B, fire_s3)
-    val wrWayOH_s4   = RegEnable(wrWayOH_s3, wen_s3)
-    val rdWayOH_s4   = RegEnable(rdWayOH_s3, ren_s3)
-    val rdDest_s4    = RegEnable(rdDest_s3, ren_s3)
-    val rdMshrIdx_s4 = RegEnable(rdMshrIdx_s3, ren_s3)
+    val ren_s5       = RegNext(ren_s4, false.B)
+    val rdWayOH_s5   = RegEnable(rdWayOH_s4, ren_s4)
+    val rdData_s5    = WireInit(0.U(dataBits.W))
+    val rdDest_s5    = RegEnable(rdDest_s4, ren_s4)
+    val rdMshrIdx_s5 = RegEnable(rdMshrIdx_s4, ren_s4)
 
-    val hasAccess_s3   = wen_s3 || ren_s3
-    val accessWayOH_s3 = Mux(wen_s3, wrWayOH_s3, rdWayOH_s3)
-    val accessWayOH_s4 = Mux(wen_s4, wrWayOH_s4, rdWayOH_s4)
-    wayConflict := RegNext(hasAccess_s3) && (accessWayOH_s3 & accessWayOH_s4).orR
+    val wen_s5     = RegNext(wen_s4, false.B)
+    val wrWayOH_s5 = RegEnable(wrWayOH_s4, wen_s4)
+
+    val hasAccess_s4   = RegNext(wen_s3 || ren_s3, false.B)
+    val hasAccess_s5   = RegNext(wen_s4 || ren_s4, false.B)
+    val accessWayOH_s4 = Mux(wen_s4, RegNext(wrWayOH_s3), RegNext(rdWayOH_s3))
+    val accessWayOH_s5 = Mux(wen_s5, RegNext(wrWayOH_s4), RegNext(rdWayOH_s4))
+    wayConflict := hasAccess_s4 && hasAccess_s5 && (accessWayOH_s4 & accessWayOH_s5).orR
     sramReady   := !wayConflict
 
     /**
@@ -273,38 +291,40 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
      */
     val wen_sinkC_s4  = RegNext(wen_sinkC_s3, false.B)
     val wen_refill_s4 = RegNext(wen_refill_s3, false.B)
-    _assert(
-        !((wen_s3 || ren_s3) && !sramReady),
-        "sram is not ready! wen_s3:%d(wen_sinkC_s3:%d wen_refill_s3:%d), ren_s3:%d, wen_s4:%d(wen_sinkC_s4:%d wen_refill_s4:%d), ren_s4:%d",
-        wen_s3,
-        wen_sinkC_s3,
-        wen_refill_s3,
-        ren_s3,
+    val wen_sinkC_s5  = RegNext(wen_sinkC_s4, false.B)
+    val wen_refill_s5 = RegNext(wen_refill_s4, false.B)
+    assert(
+        !((wen_s5 || ren_s5) && !sramReady),
+        "sram is not ready! wen_s4:%d(wen_sinkC_s4:%d wen_refill_s4:%d), ren_s4:%d, wen_s5:%d(wen_sinkC_s5:%d wen_refill_s5:%d), ren_s5:%d",
         wen_s4,
         wen_sinkC_s4,
         wen_refill_s4,
-        ren_s4
+        ren_s4,
+        wen_s5,
+        wen_sinkC_s5,
+        wen_refill_s5,
+        ren_s5
     )
 
     // -----------------------------------------------------------------------------------------
-    // Stage 5 (read finish)
+    // Stage 6 (read finish)
     // -----------------------------------------------------------------------------------------
-    val ren_s5          = RegNext(ren_s4, false.B)
-    val rdWayOH_s5      = RegEnable(rdWayOH_s4, ren_s4)
-    val rdData_s5       = WireInit(0.U(dataBits.W))
-    val rdDest_s5       = RegEnable(rdDest_s4, ren_s4)
-    val rdMshrIdx_s5    = RegEnable(rdMshrIdx_s4, ren_s4)
-    val fire_s5         = ren_s5 && rdDest_s5 =/= DataDestination.TempDataStorage
-    val rdDataRawVec_s5 = if (optParam.useFlatDataSRAM) None else Some(VecInit(dataSRAMs.get.zipWithIndex.map { case (srams, wayIdx) => VecInit(srams.map(_.io.resp.bits.data(0))) }))
-    val rdDataRaw_s5    = if (optParam.useFlatDataSRAM) VecInit(dataSRAMs_flat.get.map(_.io.resp.bits.data(0))) else Mux1H(rdWayOH_s5, rdDataRawVec_s5.get)
-    val rdDataVec_s5 = if (optParam.useFlatDataSRAM) {
-        VecInit(rdDataRaw_s5.map { dataVec =>
+    val ren_s6          = RegNext(ren_s5, false.B)
+    val rdWayOH_s6      = RegEnable(rdWayOH_s5, ren_s5)
+    val rdData_s6       = WireInit(0.U(dataBits.W))
+    val rdDest_s6       = RegEnable(rdDest_s5, ren_s5)
+    val rdMshrIdx_s6    = RegEnable(rdMshrIdx_s5, ren_s5)
+    val fire_s6         = ren_s6 && rdDest_s6 =/= DataDestination.TempDataStorage
+    val rdDataRawVec_s6 = if (optParam.useFlatDataSRAM) None else Some(VecInit(dataSRAMs.get.zipWithIndex.map { case (srams, wayIdx) => VecInit(srams.map(_.io.resp.bits.data(0))) }))
+    val rdDataRaw_s6    = if (optParam.useFlatDataSRAM) VecInit(dataSRAMs_flat.get.map(_.io.resp.bits.data(0))) else Mux1H(rdWayOH_s6, rdDataRawVec_s6.get)
+    val rdDataVec_s6 = if (optParam.useFlatDataSRAM) {
+        VecInit(rdDataRaw_s6.map { dataVec =>
             VecInit(dataVec.map { d =>
                 dataCode.decode(d).uncorrected
             }).asUInt
         })
     } else {
-        VecInit(rdDataRaw_s5.map { dataVec =>
+        VecInit(rdDataRaw_s6.map { dataVec =>
             VecInit(dataVec.map { d =>
                 dataCode.decode(d).uncorrected
             }).asUInt
@@ -312,104 +332,104 @@ class DataStorage()(implicit p: Parameters) extends L2Module {
     }
 
     if (!optParam.useFlatDataSRAM) {
-        require(rdDataRawVec_s5.get.head.length == group)
-        require(rdDataRawVec_s5.get.length == ways)
+        require(rdDataRawVec_s6.get.head.length == group)
+        require(rdDataRawVec_s6.get.length == ways)
     }
-    require(rdDataRaw_s5.length == group)
-    require(rdDataVec_s5.length == group)
+    require(rdDataRaw_s6.length == group)
+    require(rdDataVec_s6.length == group)
 
-    rdData_s5                      := rdDataVec_s5.asUInt
-    io.toTempDS.write_s5.valid     := rdDest_s5 === DataDestination.TempDataStorage && ren_s5
-    io.toTempDS.write_s5.bits.data := rdData_s5 // rdData without ECC bits, ECC check is located in TempDataStorage, so we don't need to add ECC bits here
-    io.toTempDS.write_s5.bits.mask := Fill(nrBeat, 1.U(1.W))
-    io.toTempDS.write_s5.bits.idx  := rdMshrIdx_s5
+    rdData_s6                      := rdDataVec_s6.asUInt
+    io.toTempDS.write_s6.valid     := rdDest_s6 === DataDestination.TempDataStorage && ren_s6
+    io.toTempDS.write_s6.bits.data := rdData_s6 // rdData without ECC bits, ECC check is located in TempDataStorage, so we don't need to add ECC bits here
+    io.toTempDS.write_s6.bits.mask := Fill(nrBeat, 1.U(1.W))
+    io.toTempDS.write_s6.bits.idx  := rdMshrIdx_s6
     if (enableDataECC) {
-        io.toTempDS.eccVec_s5 := VecInit(
-            rdDataRaw_s5.map { dataVec =>
+        io.toTempDS.eccVec_s6 := VecInit(
+            rdDataRaw_s6.map { dataVec =>
                 dataVec.asTypeOf(Vec(groupBytes / 8, UInt(dataWithECCBits.W))).map(d => d.head(dataEccBits)).asUInt
             }
         ).asUInt.asTypeOf(Vec(blockBytes / eccProtectBytes, UInt(dataEccBits.W)))
     } else {
-        io.toTempDS.eccVec_s5 := DontCare
+        io.toTempDS.eccVec_s6 := DontCare
     }
 
     // -----------------------------------------------------------------------------------------
-    // Stage 6 (data output) / (ECC check)
+    // Stage 7 (data output) / (ECC check)
     // -----------------------------------------------------------------------------------------
-    val ren_s7_dup           = WireInit(false.B)
-    val readToSourceD_s7_dup = WireInit(false.B)
-    val readToTXDAT_s7_dup   = WireInit(false.B)
+    val ren_s8_dup           = WireInit(false.B)
+    val readToSourceD_s8_dup = WireInit(false.B)
+    val readToTXDAT_s8_dup   = WireInit(false.B)
 
-    val ren_s6           = RegInit(false.B)
-    val rdData_s6        = WireInit(0.U(dataBits.W))
-    val rdDataRaw_s6     = RegEnable(rdDataRaw_s5, fire_s5)
-    val rdDest_s6        = RegEnable(rdDest_s5, fire_s5)
-    val readToSourceD_s6 = rdDest_s6 === DataDestination.SourceD
-    val readToTXDAT_s6   = rdDest_s6 === DataDestination.TXDAT
-    val fire_s6          = ren_s6 && ready_s7 && (io.toSourceD.dsResp_s6s7.valid && !io.toSourceD.dsResp_s6s7.ready || io.toTXDAT.dsResp_s6s7.valid && !io.toTXDAT.dsResp_s6s7.ready)
+    val ren_s7           = RegInit(false.B)
+    val rdData_s7        = WireInit(0.U(dataBits.W))
+    val rdDataRaw_s7     = RegEnable(rdDataRaw_s6, fire_s6)
+    val rdDest_s7        = RegEnable(rdDest_s6, fire_s6)
+    val readToSourceD_s7 = rdDest_s7 === DataDestination.SourceD
+    val readToTXDAT_s7   = rdDest_s7 === DataDestination.TXDAT
+    val fire_s7          = ren_s7 && ready_s8 && (io.toSourceD.dsResp_s7s8.valid && !io.toSourceD.dsResp_s7s8.ready || io.toTXDAT.dsResp_s7s8.valid && !io.toTXDAT.dsResp_s7s8.ready)
 
-    val rdDataVecDecoded_s6       = rdDataRaw_s6.map(dataVec => dataVec.map(d => dataCode.decode(d)))
-    val rdDataVec_s6              = VecInit(rdDataVecDecoded_s6.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => Mux(decodedData.correctable, decodedData.corrected, decodedData.uncorrected))).asUInt))
-    val rdDataHasErr_s6           = VecInit(rdDataVecDecoded_s6.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => decodedData.error)).asUInt)).asUInt.orR
-    val rdDataHasUncorrectable_s6 = VecInit(rdDataVecDecoded_s6.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => decodedData.uncorrectable)).asUInt)).asUInt.orR
+    val rdDataVecDecoded_s7       = rdDataRaw_s7.map(dataVec => dataVec.map(d => dataCode.decode(d)))
+    val rdDataVec_s7              = VecInit(rdDataVecDecoded_s7.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => Mux(decodedData.correctable, decodedData.corrected, decodedData.uncorrected))).asUInt))
+    val rdDataHasErr_s7           = VecInit(rdDataVecDecoded_s7.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => decodedData.error)).asUInt)).asUInt.orR
+    val rdDataHasUncorrectable_s7 = VecInit(rdDataVecDecoded_s7.map(decodedDataVec => VecInit(decodedDataVec.map(decodedData => decodedData.uncorrectable)).asUInt)).asUInt.orR
 
-    rdData_s6 := rdDataVec_s6.asUInt
+    rdData_s7 := rdDataVec_s7.asUInt
 
     // TODO: ECC info should be saved in some kind of CSR registers. For now, just ignore it.
     if (enableDataECC) {
         assert(
-            !(ren_s6 && rdDataHasErr_s6 && rdDataHasUncorrectable_s6),
-            "TODO: Data has error rdDataVec_s6:%x, rdDataHasErr_s6:%d, rdDataHasUncorrectable_s6:%d",
-            rdDataVec_s6.asUInt,
-            rdDataHasErr_s6,
-            rdDataHasUncorrectable_s6
+            !(ren_s7 && rdDataHasErr_s7 && rdDataHasUncorrectable_s7),
+            "TODO: Data has error rdDataVec_s7:%x, rdDataHasErr_s7:%d, rdDataHasUncorrectable_s7:%d",
+            rdDataVec_s7.asUInt,
+            rdDataHasErr_s7,
+            rdDataHasUncorrectable_s7
         )
 
-        io.eccError := ren_s6 && rdDataHasUncorrectable_s6
+        io.eccError := ren_s7 && rdDataHasUncorrectable_s7
     } else {
         io.eccError := false.B
     }
 
-    when(fire_s5) {
-        ren_s6 := true.B
-    }.elsewhen((io.toSourceD.dsResp_s6s7.fire && readToSourceD_s6 && !(ren_s7_dup && readToSourceD_s7_dup) || io.toTXDAT.dsResp_s6s7.fire && readToTXDAT_s6 && !(ren_s7_dup && readToTXDAT_s7_dup)) && !fire_s5 && ren_s6) {
-        ren_s6 := false.B
-    }.elsewhen(fire_s6 && !fire_s5) {
-        ren_s6 := false.B
-    }
-
-    assert(!(fire_s5 && ren_s6), "stage 6 is full!")
-    assert(!(ren_s6 && readToSourceD_s6 && readToTXDAT_s6))
-    LeakChecker(ren_s6, !ren_s6, Some("ren_s6"), maxCount = deadlockThreshold)
-
-    // -----------------------------------------------------------------------------------------
-    // Stage 7 (data output)
-    // -----------------------------------------------------------------------------------------
-    val ren_s7           = RegInit(false.B)
-    val rdData_s7        = RegEnable(rdData_s6, fire_s6)
-    val rdDest_s7        = RegEnable(rdDest_s6, fire_s6)
-    val readToTXDAT_s7   = rdDest_s7 === DataDestination.TXDAT
-    val readToSourceD_s7 = rdDest_s7 === DataDestination.SourceD
-    val fire_s7          = io.toTXDAT.dsResp_s6s7.fire && readToTXDAT_s7 || io.toSourceD.dsResp_s6s7.fire && readToSourceD_s7
-    ren_s7_dup           := ren_s7
-    readToSourceD_s7_dup := readToSourceD_s7
-    readToTXDAT_s7_dup   := readToTXDAT_s7
-    ready_s7             := !ren_s7
-
     when(fire_s6) {
         ren_s7 := true.B
-    }.elsewhen(fire_s7 && ren_s7 && !fire_s6) {
+    }.elsewhen((io.toSourceD.dsResp_s7s8.fire && readToSourceD_s7 && !(ren_s8_dup && readToSourceD_s8_dup) || io.toTXDAT.dsResp_s7s8.fire && readToTXDAT_s7 && !(ren_s8_dup && readToTXDAT_s8_dup)) && !fire_s6 && ren_s7) {
+        ren_s7 := false.B
+    }.elsewhen(fire_s7 && !fire_s6) {
         ren_s7 := false.B
     }
 
+    assert(!(fire_s6 && ren_s7), "stage 7 is full!")
     assert(!(ren_s7 && readToSourceD_s7 && readToTXDAT_s7))
     LeakChecker(ren_s7, !ren_s7, Some("ren_s7"), maxCount = deadlockThreshold)
 
-    io.toTXDAT.dsResp_s6s7.valid     := ren_s6 && readToTXDAT_s6 || ren_s7 && readToTXDAT_s7
-    io.toTXDAT.dsResp_s6s7.bits.data := Mux(readToTXDAT_s7 && ren_s7, rdData_s7, rdData_s6)
+    // -----------------------------------------------------------------------------------------
+    // Stage 8 (data output)
+    // -----------------------------------------------------------------------------------------
+    val ren_s8           = RegInit(false.B)
+    val rdData_s8        = RegEnable(rdData_s7, fire_s7)
+    val rdDest_s8        = RegEnable(rdDest_s7, fire_s7)
+    val readToTXDAT_s8   = rdDest_s8 === DataDestination.TXDAT
+    val readToSourceD_s8 = rdDest_s8 === DataDestination.SourceD
+    val fire_s8          = io.toTXDAT.dsResp_s7s8.fire && readToTXDAT_s8 || io.toSourceD.dsResp_s7s8.fire && readToSourceD_s8
+    ren_s8_dup           := ren_s8
+    readToSourceD_s8_dup := readToSourceD_s8
+    readToTXDAT_s8_dup   := readToTXDAT_s8
+    ready_s8             := !ren_s8
 
-    io.toSourceD.dsResp_s6s7.valid     := ren_s6 && readToSourceD_s6 || ren_s7 && readToSourceD_s7
-    io.toSourceD.dsResp_s6s7.bits.data := Mux(readToSourceD_s7 && ren_s7, rdData_s7, rdData_s6)
+    when(fire_s7) {
+        ren_s8 := true.B
+    }.elsewhen(fire_s8 && ren_s8 && !fire_s7) {
+        ren_s8 := false.B
+    }
+
+    assert(!(ren_s8 && readToSourceD_s8 && readToTXDAT_s8))
+    LeakChecker(ren_s8, !ren_s8, Some("ren_s8"), maxCount = deadlockThreshold)
+
+    io.toTXDAT.dsResp_s7s8.valid     := ren_s7 && readToTXDAT_s7 || ren_s8 && readToTXDAT_s8
+    io.toTXDAT.dsResp_s7s8.bits.data := Mux(readToTXDAT_s8 && ren_s8, rdData_s8, rdData_s7)
+
+    io.toSourceD.dsResp_s7s8.valid     := ren_s7 && readToSourceD_s7 || ren_s8 && readToSourceD_s8
+    io.toSourceD.dsResp_s7s8.bits.data := Mux(readToSourceD_s8 && ren_s8, rdData_s8, rdData_s7)
 
     dontTouch(io)
 }

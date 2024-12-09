@@ -25,8 +25,8 @@ class SourceD()(implicit p: Parameters) extends L2Module {
         val task_s2             = Flipped(DecoupledIO(new TaskBundle))                  // for non-data resp / data resp
         val data_s2             = Flipped(DecoupledIO(UInt(dataBits.W)))
         val task_s4             = Flipped(DecoupledIO(new TaskBundle))                  // for non-data resp
-        val task_s6s7           = Flipped(DecoupledIO(new TaskBundle))                  // for data resp
-        val data_s6s7           = Flipped(DecoupledIO(UInt(dataBits.W)))
+        val task_s7s8           = Flipped(DecoupledIO(new TaskBundle))                  // for data resp
+        val data_s7s8           = Flipped(DecoupledIO(UInt(dataBits.W)))
         val allocGrantMap       = DecoupledIO(new AllocGrantMap)                        // to SinkE
         val grantMapWillFull    = Input(Bool())                                         // from SinkE
         val sinkIdAlloc         = Flipped(new IDPoolAlloc(log2Ceil(nrExtraSinkId + 1))) // to sinkIDPool
@@ -51,18 +51,18 @@ class SourceD()(implicit p: Parameters) extends L2Module {
         val data = UInt(dataBits.W)
     }))
 
-    // Priority: task_s4 > task_s2 > task_s6s7
-    val task          = Mux(io.task_s4.valid, io.task_s4.bits, Mux(io.task_s2.valid, io.task_s2.bits, io.task_s6s7.bits))
-    val taskValid     = io.task_s2.valid || io.task_s4.valid || io.task_s6s7.valid
-    val taskFire      = io.task_s2.fire || io.task_s4.fire || io.task_s6s7.fire
+    // Priority: task_s4 > task_s2 > task_s7s8
+    val task          = Mux(io.task_s4.valid, io.task_s4.bits, Mux(io.task_s2.valid, io.task_s2.bits, io.task_s7s8.bits))
+    val taskValid     = io.task_s2.valid || io.task_s4.valid || io.task_s7s8.valid
+    val taskFire      = io.task_s2.fire || io.task_s4.fire || io.task_s7s8.fire
     val bufferReady   = Mux(needData(task.opcode), skidBuffer.io.enq.ready, nonDataRespQueue.io.enq.ready)
     val grantMapReady = Mux(task.opcode === GrantData || task.opcode === Grant, io.allocGrantMap.ready, true.B)
     io.nonDataRespCntMp    := Mux(io.grantMapWillFull, nrNonDataSourceDEntry.U, nonDataRespQueue.io.count) // If grantMap is not ready, set io.nonDataRespCnt to the max value so that the MainPipe could stall the Grant request.
     io.nonDataRespCntSinkC := nonDataRespQueue.io.count
     io.task_s4.ready       := bufferReady && grantMapReady
     io.task_s2.ready       := bufferReady && grantMapReady && !io.task_s4.valid
-    io.task_s6s7.ready     := bufferReady && grantMapReady && !io.task_s4.valid && !io.task_s2.valid
-    assert(PopCount(VecInit(Seq(io.task_s2.fire, io.task_s4.fire, io.task_s6s7.fire))) <= 1.U, "only one task can be valid at the same time")
+    io.task_s7s8.ready     := bufferReady && grantMapReady && !io.task_s4.valid && !io.task_s2.valid
+    assert(PopCount(VecInit(Seq(io.task_s2.fire, io.task_s4.fire, io.task_s7s8.fire))) <= 1.U, "only one task can be valid at the same time")
     assert(!(io.task_s4.fire && needData(io.task_s4.bits.opcode)), "task_s4 is not for data resp")
     assert(!(taskFire && (task.opcode === GrantData || task.opcode === Grant) && !io.allocGrantMap.fire), "need to allocate grantMap entry!")
 
@@ -70,7 +70,7 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     io.sinkIdAlloc.valid := taskFire && (task.opcode === GrantData || task.opcode === Grant) && !task.isMshrTask
 
     io.data_s2.ready   := skidBuffer.io.enq.ready && needData(task.opcode) && grantMapReady
-    io.data_s6s7.ready := skidBuffer.io.enq.ready && needData(task.opcode) && grantMapReady && !io.data_s2.valid
+    io.data_s7s8.ready := skidBuffer.io.enq.ready && needData(task.opcode) && grantMapReady && !io.data_s2.valid
 
     nonDataRespQueue.io.enq.valid          := taskFire && !needData(task.opcode) && task.opcode =/= HintAck
     nonDataRespQueue.io.enq.bits.task      := task
@@ -80,8 +80,8 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     skidBuffer.io.enq.valid          := taskFire && needData(task.opcode)
     skidBuffer.io.enq.bits.task      := task
     skidBuffer.io.enq.bits.task.sink := Mux(task.isMshrTask, task.sink, sinkId)
-    skidBuffer.io.enq.bits.data      := Mux(io.task_s2.valid, io.data_s2.bits, io.data_s6s7.bits)
-    assert(!(io.task_s4.fire && !io.task_s6s7.valid && io.data_s6s7.fire), "task_s4 should arrive with data_s6s7!")
+    skidBuffer.io.enq.bits.data      := Mux(io.task_s2.valid, io.data_s2.bits, io.data_s7s8.bits)
+    assert(!(io.task_s4.fire && !io.task_s7s8.valid && io.data_s7s8.fire), "task_s4 should arrive with data_s7s8!")
 
     /** Extra buffer status signals for [[RequestArbiter]] */
     io.bufferStatus.valid := skidBuffer.io.full
@@ -90,12 +90,12 @@ class SourceD()(implicit p: Parameters) extends L2Module {
 
     assert(!(io.task_s2.fire && needData(task.opcode) && !io.data_s2.fire), "data should arrive with task!")
     assert(!(io.data_s2.fire && needData(task.opcode) && !io.task_s2.fire), "task should arrive with data!")
-    assert(!(io.task_s6s7.fire && needData(task.opcode) && !io.data_s6s7.fire), "data should arrive with task!")
-    assert(!(io.data_s6s7.fire && needData(task.opcode) && !io.task_s6s7.fire), "task should arrive with data!")
+    assert(!(io.task_s7s8.fire && needData(task.opcode) && !io.data_s7s8.fire), "data should arrive with task!")
+    assert(!(io.data_s7s8.fire && needData(task.opcode) && !io.task_s7s8.fire), "task should arrive with data!")
     assert(!(needData(io.task_s2.bits.opcode) && (io.task_s2.valid ^ io.data_s2.valid)), "task_s2 should be valid with data_s2 valid!")
-    assert(!(needData(io.task_s6s7.bits.opcode) && (io.task_s6s7.valid ^ io.data_s6s7.valid)), "task_s6s7 should be valid with data_s6s7 valid!")
+    assert(!(needData(io.task_s7s8.bits.opcode) && (io.task_s7s8.valid ^ io.data_s7s8.valid)), "task_s7s8 should be valid with data_s7s8 valid!")
     assert(!(io.data_s2.valid && !io.task_s2.valid), "unnecessary data_s2! task_s2.opcode:%d", io.task_s2.bits.opcode)
-    assert(!(io.data_s6s7.valid && !io.task_s6s7.valid), "unnecessary data_s6s7! task_s6s7.opcode:%d", io.task_s6s7.bits.opcode)
+    assert(!(io.data_s7s8.valid && !io.task_s7s8.valid), "unnecessary data_s7s8! task_s7s8.opcode:%d", io.task_s7s8.bits.opcode)
 
     val NonDataReq   = 0.U(1.W)
     val HasDataReq   = 1.U(1.W)

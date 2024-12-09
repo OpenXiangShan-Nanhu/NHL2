@@ -283,6 +283,8 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val promoteT_alias  = dirResp.hit && req.isAliasTask && (meta.isTrunk || meta.isTip)
     val reqPromoteT     = (reqIsAcquire || reqIsGet || reqIsPrefetch) && (promoteT_normal || promoteT_l3 || promoteT_alias) // TODO:
 
+    val tempDsWriteFinish_dup = WireInit(false.B)
+
     when(io.alloc_s3.fire && !io.alloc_s3.bits.realloc) {
         val allocState   = io.alloc_s3.bits.fsmState
         val allocReq     = io.alloc_s3.bits.req
@@ -683,7 +685,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         Mux(compdatOpcode === SnpUniqueFwd, Mux(meta.isDirty || probeGotDirty, CHICohState.UD, CHICohState.UC), CHICohState.I)
     )
     val fwdPassDirty = req.chiOpcode === SnpUniqueFwd && (meta.isDirty || probeGotDirty)
-    mpTask_compdat.valid            := !state.s_compdat && state.w_sprobeack && supportDCT.B
+    mpTask_compdat.valid            := !state.s_compdat && state.w_sprobeack && tempDsWriteFinish_dup && supportDCT.B
     mpTask_compdat.bits.isCHIOpcode := true.B
     mpTask_compdat.bits.opcode      := CHIOpcodeDAT.CompData
     mpTask_compdat.bits.channel     := CHIChannel.TXDAT
@@ -712,10 +714,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val snprespNeedData = Mux(
         isRealloc,
         snpGotDirty || snpRetToSrc,
-        (gotDirty || probeGotDirty || meta.isDirty || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
+        (gotDirty || probeGotDirty || meta.isDirty || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */ ) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
     ) && !isSnpMakeInvalidX
     val hasValidProbeAck = VecInit(probeAckParams.zip(meta.clientsOH.asBools).map { case (probeAck, en) => en && probeAck =/= NtoN }).asUInt.orR
-    mpTask_snpresp.valid            := !state.s_snpresp && state.w_sprobeack && state.s_compdat && state.w_compdat_sent
+    mpTask_snpresp.valid            := !state.s_snpresp && state.w_sprobeack && state.s_compdat && state.w_compdat_sent && Mux(mpTask_snpresp.bits.readTempDs, tempDsWriteFinish_dup, true.B)
     mpTask_snpresp.bits.tgtID       := snpSrcID
     mpTask_snpresp.bits.txnID       := snpTxnID
     mpTask_snpresp.bits.isCHIOpcode := true.B
@@ -1547,11 +1549,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
      *  Allow Snoop nested request address. This operation will cause ReadReissue
      */
     /** We need a counter to make sure that the data has been written back into [[TempDataStorage]] so that the nested Snoop can read [[TempDataStorage]] and get correct data. */
-    val tempDsWriteCnt    = RegInit(0.U(2.W))
-    val tempDsWriteFinish = tempDsWriteCnt >= 2.U
+    val tempDsWriteCnt    = RegInit(0.U(3.W))
+    val tempDsWriteFinish = tempDsWriteCnt >= 3.U
+    tempDsWriteFinish_dup := tempDsWriteFinish
     when(io.alloc_s3.fire) {
         tempDsWriteCnt := 0.U
-    }.elsewhen(tempDsWriteCnt <= 2.U) {
+    }.elsewhen(tempDsWriteCnt <= 3.U) {
         tempDsWriteCnt := tempDsWriteCnt + 1.U
     }
 

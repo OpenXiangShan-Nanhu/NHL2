@@ -61,7 +61,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val mshrStatus         = Vec(nrMSHR, Input(new MshrStatus))
         val replayFreeCntSinkA = Input(UInt((log2Ceil(nrReplayEntrySinkA) + 1).W))
         val nonDataRespCnt     = Input(UInt((log2Ceil(nrNonDataSourceDEntry) + 1).W))
-        val mpStatus_s4567     = Input(new MpStatus4567)
+        val mpStatus_s45678    = Input(new MpStatus45678)
         val bufferStatus       = Input(new BufferStatusSourceD) // from SourceD
         val resetFinish        = Input(Bool())
 
@@ -142,8 +142,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
             s.valid && s.set === set && (s.reqTag === tag || s.lockWay && s.metaTag === tag)
         }).asUInt.orR
 
-        // io.mpStatus_s4567 provides stage info from stage 4 to stage 7.
-        val mpAddrConflict = VecInit(io.mpStatus_s4567.elements.map { case (name: String, stage: MpStageInfo) =>
+        // io.mpStatus_s45678 provides stage info from stage 4 to stage 7.
+        val mpAddrConflict = VecInit(io.mpStatus_s45678.elements.map { case (name: String, stage: MpStageInfo) =>
             stage.valid && stage.isRefill && stage.set === set && stage.tag === tag
         }.toSeq).asUInt.orR
 

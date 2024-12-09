@@ -358,20 +358,6 @@ class Directory()(implicit p: Parameters) extends L2Module {
     io.replResp_s3.bits.wayOH  := finalWayOH_s3
 
     /**
-     * MetaSRAMs should be updated on the following conditions:
-     *  1. When io.dirWrite_s3.valid is true.
-     *  2. When the reset is not finished and we should write an initial value to every SRAM entry to avoid X propagation.
-     */
-    metaSRAMs.zipWithIndex.foreach { case (sram, i) =>
-        val sramWayMask = io.dirWrite_s3.bits.wayOH(i * 2 + (group - 1), i * 2)
-        sram.io.w.req.valid       := !io.resetFinish || io.dirWrite_s3.fire
-        sram.io.w.req.bits.setIdx := Mux(io.resetFinish, io.dirWrite_s3.bits.set, resetIdx - 1.U)
-        sram.io.w.req.bits.data   := Mux(io.resetFinish, VecInit(Seq.fill(group)(io.dirWrite_s3.bits.meta)), VecInit(Seq.fill(group)(0.U.asTypeOf(new DirectoryMetaEntry))))
-        sram.io.w.req.bits.waymask.foreach(_ := Mux(io.resetFinish, sramWayMask, Fill(group, 1.U)))
-        assert(!(sram.io.w.req.valid && PopCount(sramWayMask) > 1.U), "0b%b", sramWayMask)
-    }
-
-    /**
      * ReplacerSRAM should be updated on the following conditions:
      *  1. When the directory is under reseting. We should assign a initial value to the SRAM to avoid X propagation.
      *  2. When the directory result is hit and the request is an Acquire* request from ChannelA.
@@ -405,6 +391,27 @@ class Directory()(implicit p: Parameters) extends L2Module {
         assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "replacerSRAM is not ready for write!")
     }
 
+    val dirWriteValid_s3 = RegNext(io.dirWrite_s3.fire, false.B)
+    val dirWriteInfo_s3  = RegEnable(io.dirWrite_s3.bits, io.dirWrite_s3.fire)
+
+    // -----------------------------------------------------------------------------------------
+    // Stage 4(dir write)
+    // -----------------------------------------------------------------------------------------
+    /**
+     * MetaSRAMs should be updated on the following conditions:
+     *  1. When `dirWriteValid_s3` is true.
+     *  2. When the reset is not finished and we should write an initial value to every SRAM entry to avoid X propagation.
+     */
+
+    metaSRAMs.zipWithIndex.foreach { case (sram, i) =>
+        val sramWayMask = dirWriteInfo_s3.wayOH(i * 2 + (group - 1), i * 2)
+        sram.io.w.req.valid       := !io.resetFinish || dirWriteValid_s3
+        sram.io.w.req.bits.setIdx := Mux(io.resetFinish, dirWriteInfo_s3.set, resetIdx - 1.U)
+        sram.io.w.req.bits.data   := Mux(io.resetFinish, VecInit(Seq.fill(group)(dirWriteInfo_s3.meta)), VecInit(Seq.fill(group)(0.U.asTypeOf(new DirectoryMetaEntry))))
+        sram.io.w.req.bits.waymask.foreach(_ := Mux(io.resetFinish, sramWayMask, Fill(group, 1.U)))
+        assert(!(sram.io.w.req.valid && PopCount(sramWayMask) > 1.U), "0b%b", sramWayMask)
+    }
+
     /** 
      * Reset all SRAM data when reset. 
      * If not reset, all the SRAM data(including meta info) will be X.
@@ -416,13 +423,13 @@ class Directory()(implicit p: Parameters) extends L2Module {
     when(io.resetFinish) {
         val sramWrReady      = metaSRAMs.map(_.io.w.req.ready).reduce(_ & _)
         val dirWriteReady_s3 = io.resetFinish && sramWrReady
-        assert(!(io.dirWrite_s3.valid && !dirWriteReady_s3))
-        assert(!(io.dirWrite_s3.valid && !sramWrReady), "dirWrite_s3 while metaSRAM is not ready!")
-        assert(!(io.dirWrite_s3.valid && PopCount(io.dirWrite_s3.bits.wayOH) > 1.U))
+        assert(!(dirWriteValid_s3 && !dirWriteReady_s3))
+        assert(!(dirWriteValid_s3 && !sramWrReady), "dirWrite_s3 while metaSRAM is not ready!")
+        assert(!(dirWriteValid_s3 && PopCount(dirWriteInfo_s3.wayOH) > 1.U))
     }
     when(!io.resetFinish) {
         assert(!io.dirRead_s1.fire, "cannot read directory while not reset finished!")
-        assert(!io.dirWrite_s3.fire, "cannot write directory while not reset finished!")
+        assert(!dirWriteValid_s3, "cannot write directory while not reset finished!")
         metaSRAMs.foreach { sram =>
             assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "write metaSRAM should always be ready!")
         }

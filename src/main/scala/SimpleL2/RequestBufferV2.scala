@@ -46,10 +46,10 @@ class RequestBufferV2()(implicit p: Parameters) extends L2Module {
         val taskOut   = DecoupledIO(new TaskBundle)
         val replay_s4 = Flipped(ValidIO(new ReqBufReplay))
 
-        val mshrStatus     = Vec(nrMSHR, Input(new MshrStatus))
-        val mpStatus_s123  = Input(new MpStatus123)
-        val mpStatus_s4567 = Input(new MpStatus4567)
-        val bufferStatus   = Input(new BufferStatusSourceD) // from SourceD
+        val mshrStatus      = Vec(nrMSHR, Input(new MshrStatus))
+        val mpStatus_s123   = Input(new MpStatus123)
+        val mpStatus_s45678 = Input(new MpStatus45678)
+        val bufferStatus    = Input(new BufferStatusSourceD) // from SourceD
     })
 
     val issueArb = Module(new FastArbiter(new TaskBundle, nrReqBufEntry))
@@ -73,8 +73,8 @@ class RequestBufferV2()(implicit p: Parameters) extends L2Module {
             s.valid && s.set === set && (s.reqTag === tag || s.lockWay && s.metaTag === tag)
         }).asUInt.orR
 
-        // io.mpStatus_s4567 provides stage info from stage 4 to stage 7.
-        val mpAddrConflict = VecInit(io.mpStatus_s4567.elements.map { case (name: String, stage: MpStageInfo) =>
+        // io.mpStatus_s45678 provides stage info from stage 4 to stage 7.
+        val mpAddrConflict = VecInit(io.mpStatus_s45678.elements.map { case (name: String, stage: MpStageInfo) =>
             stage.valid && stage.isRefill && stage.set === set && stage.tag === tag
         }.toSeq).asUInt.orR
 

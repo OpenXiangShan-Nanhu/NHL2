@@ -106,12 +106,12 @@ class Slice()(implicit p: Parameters) extends L2Module {
     if (!optParam.sinkaStallOnReqArb) {
         val reqBuf = Module(new RequestBufferV2)
 
-        reqBuf.io.taskIn         <> sinkA.io.task
-        reqBuf.io.mpStatus_s123  <> reqArb.io.status
-        reqBuf.io.mpStatus_s4567 <> mainPipe.io.status
-        reqBuf.io.mshrStatus     <> missHandler.io.mshrStatus
-        reqBuf.io.bufferStatus   := sourceD.io.bufferStatus
-        reqBuf.io.replay_s4      <> mainPipe.io.reqBufReplay_s4_opt.getOrElse(DontCare)
+        reqBuf.io.taskIn          <> sinkA.io.task
+        reqBuf.io.mpStatus_s123   <> reqArb.io.status
+        reqBuf.io.mpStatus_s45678 <> mainPipe.io.status
+        reqBuf.io.mshrStatus      <> missHandler.io.mshrStatus
+        reqBuf.io.bufferStatus    := sourceD.io.bufferStatus
+        reqBuf.io.replay_s4       <> mainPipe.io.reqBufReplay_s4_opt.getOrElse(DontCare)
 
         reqArb.io.replayFreeCntSinkA := DontCare
 
@@ -143,7 +143,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
     reqArb.io.taskSinkC_s1             <> sinkC.io.task
     reqArb.io.dirRead_s1               <> dir.io.dirRead_s1
     reqArb.io.resetFinish              <> dir.io.resetFinish
-    reqArb.io.mpStatus_s4567           <> mainPipe.io.status
+    reqArb.io.mpStatus_s45678          <> mainPipe.io.status
     reqArb.io.nonDataRespCnt           := sourceD.io.nonDataRespCntSinkC
     reqArb.io.mshrStatus               <> missHandler.io.mshrStatus
     reqArb.io.bufferStatus             := sourceD.io.bufferStatus
@@ -165,13 +165,13 @@ class Slice()(implicit p: Parameters) extends L2Module {
     ds.io.fromMainPipe.dsRead_s3      <> mainPipe.io.toDS.dsRead_s3
     ds.io.fromMainPipe.dsWrWayOH_s3   <> mainPipe.io.toDS.dsWrWayOH_s3
     ds.io.fromMainPipe.mshrId_s3      := mainPipe.io.toDS.mshrId_s3
-    ds.io.toTXDAT.dsResp_s6s7.ready   := txdat.io.data_s6s7.ready
-    ds.io.toSourceD.dsResp_s6s7.ready := sourceD.io.data_s6s7.ready
+    ds.io.toTXDAT.dsResp_s7s8.ready   := txdat.io.data_s7s8.ready
+    ds.io.toSourceD.dsResp_s7s8.ready := sourceD.io.data_s7s8.ready
 
     dir.io.dirWrite_s3 <> mainPipe.io.dirWrite_s3
 
-    tempDS.io.fromDS.eccVec_s5        := ds.io.toTempDS.eccVec_s5
-    tempDS.io.fromDS.write_s5         <> ds.io.toTempDS.write_s5
+    tempDS.io.fromDS.eccVec_s6        := ds.io.toTempDS.eccVec_s6
+    tempDS.io.fromDS.write_s6         <> ds.io.toTempDS.write_s6
     tempDS.io.fromRXDAT.write         <> rxdat.io.toTempDS.write
     tempDS.io.fromSinkC.write         <> sinkC.io.toTempDS.write
     tempDS.io.fromReqArb.read_s1      <> reqArb.io.tempDsRead_s1
@@ -212,9 +212,9 @@ class Slice()(implicit p: Parameters) extends L2Module {
     sourceD.io.data_s2          <> tempDS.io.toSourceD.data_s2
     sourceD.io.data_s2.valid    := tempDS.io.toSourceD.data_s2.valid && !cancelData_s2
     sourceD.io.task_s4          <> mainPipe.io.sourceD_s4
-    sourceD.io.task_s6s7        <> mainPipe.io.sourceD_s6s7
-    sourceD.io.data_s6s7.valid  := ds.io.toSourceD.dsResp_s6s7.valid
-    sourceD.io.data_s6s7.bits   := ds.io.toSourceD.dsResp_s6s7.bits.data
+    sourceD.io.task_s7s8        <> mainPipe.io.sourceD_s7s8
+    sourceD.io.data_s7s8.valid  := ds.io.toSourceD.dsResp_s7s8.valid
+    sourceD.io.data_s7s8.bits   := ds.io.toSourceD.dsResp_s7s8.bits.data
     sourceD.io.grantMapWillFull := sinkE.io.grantMapWillFull
 
     txrsp.io.mshrTask  <> missHandler.io.tasks.txrsp
@@ -238,9 +238,9 @@ class Slice()(implicit p: Parameters) extends L2Module {
         txdat.io.data_s2.valid := tempDS.io.toTXDAT.data_s2.valid && !cancelData_s2
     }
     txdat.io.task_s2         <> mainPipe.io.txdat_s2
-    txdat.io.task_s6s7       <> mainPipe.io.txdat_s6s7
-    txdat.io.data_s6s7.valid := ds.io.toTXDAT.dsResp_s6s7.valid
-    txdat.io.data_s6s7.bits  := ds.io.toTXDAT.dsResp_s6s7.bits.data
+    txdat.io.task_s7s8       <> mainPipe.io.txdat_s7s8
+    txdat.io.data_s7s8.valid := ds.io.toTXDAT.dsResp_s7s8.valid
+    txdat.io.data_s7s8.bits  := ds.io.toTXDAT.dsResp_s7s8.bits.data
 
     sinkE.io.allocGrantMap <> sourceD.io.allocGrantMap
 
@@ -249,9 +249,9 @@ class Slice()(implicit p: Parameters) extends L2Module {
     } else {
         sourceB.io.task <> missHandler.io.tasks.sourceb
     }
-    sourceB.io.grantMapStatus <> sinkE.io.grantMapStatus
-    sourceB.io.mpStatus_s4567 <> mainPipe.io.status
-    sourceB.io.bufferStatus   := sourceD.io.bufferStatus
+    sourceB.io.grantMapStatus  <> sinkE.io.grantMapStatus
+    sourceB.io.mpStatus_s45678 <> mainPipe.io.status
+    sourceB.io.bufferStatus    := sourceD.io.bufferStatus
 
     io.eccError := RegNext(ds.io.eccError, false.B) || RegNext(tempDS.io.eccError, false.B)
 
@@ -273,10 +273,10 @@ class Slice()(implicit p: Parameters) extends L2Module {
     if (hasLowPowerInterface) {
         val lowPowerCtrl = Module(new LowPowerCtrl)
         val powerState   = lowPowerCtrl.io.powerState
-        lowPowerCtrl.io.lowPower       <> io.lowPowerOpt.get
-        lowPowerCtrl.io.mshrStatus     <> missHandler.io.mshrStatus
-        lowPowerCtrl.io.mpStatus_s123  <> reqArb.io.status
-        lowPowerCtrl.io.mpStatus_s4567 <> mainPipe.io.status
+        lowPowerCtrl.io.lowPower        <> io.lowPowerOpt.get
+        lowPowerCtrl.io.mshrStatus      <> missHandler.io.mshrStatus
+        lowPowerCtrl.io.mpStatus_s123   <> reqArb.io.status
+        lowPowerCtrl.io.mpStatus_s45678 <> mainPipe.io.status
 
         val sramWakeupTimer  = RegInit((sramRetentionWakeupCycles).U(log2Up(sramRetentionWakeupCycles + 1).W)) // Wait for SRAM retention wakeup
         val sramWakeupFinish = sramWakeupTimer === sramRetentionWakeupCycles.U

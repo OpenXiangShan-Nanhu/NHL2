@@ -14,9 +14,9 @@ class SourceB()(implicit p: Parameters) extends L2Module {
         val task = Flipped(DecoupledIO(new TLBundleB(tlBundleParams)))
 
         /** These signals are used for blocking sourceb tasks. */
-        val grantMapStatus = Input(Vec(nrGrantMap, new GrantMapStatus)) // from SinkE
-        val mpStatus_s4567 = Input(new MpStatus4567)                    // from MainPipe
-        val bufferStatus   = Input(new BufferStatusSourceD)             // from SourceD
+        val grantMapStatus  = Input(Vec(nrGrantMap, new GrantMapStatus)) // from SinkE
+        val mpStatus_s45678 = Input(new MpStatus45678)                   // from MainPipe
+        val bufferStatus    = Input(new BufferStatusSourceD)             // from SourceD
     })
 
     val (tag, set, offset) = parseAddress(io.task.bits.address)
@@ -29,7 +29,7 @@ class SourceB()(implicit p: Parameters) extends L2Module {
     val shouldBlock_sinke = matchVec_sinke.orR
     assert(!(io.b.fire && PopCount(matchVec_sinke) > 1.U), "matchVec_sinke:%b", matchVec_sinke)
 
-    val matchVec_mp = VecInit(io.mpStatus_s4567.elements.map { case (name: String, stage: MpStageInfo) =>
+    val matchVec_mp = VecInit(io.mpStatus_s45678.elements.map { case (name: String, stage: MpStageInfo) =>
         stage.valid && stage.isRefill && stage.set === set && stage.tag === tag
     }.toSeq).asUInt
     val shouldBlock_mp = matchVec_mp.orR
