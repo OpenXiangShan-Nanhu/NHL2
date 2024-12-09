@@ -142,7 +142,7 @@ class SimpleL2CacheDecoupled(parentName: String = "L2_")(implicit p: Parameters)
             slice.io.tl      <> bundleIn
             slice.io.sliceId := i.U(bankBits.W)
 
-            slice.io.lowPowerOpt.foreach(_ := io.lowPowerOpt.get)
+            slice.io.lowPowerOpt.foreach(_ <> io.lowPowerOpt.get)
         }
 
         if (enablePrefetch) {
@@ -273,11 +273,12 @@ class SimpleL2CacheDecoupled(parentName: String = "L2_")(implicit p: Parameters)
 class SimpleL2CacheWrapperDecoupled(idRangeMax: Int = 16, nodeID: Int = 0)(implicit p: Parameters) extends LazyModule {
     val cacheParams = p(L2ParamKey)
 
-    val nrCore         = cacheParams.nrClients
-    val nrSlice        = cacheParams.nrSlice
-    val ways           = cacheParams.ways
-    val sets           = cacheParams.sets
-    val enablePrefetch = cacheParams.prefetchParams.nonEmpty
+    val nrCore               = cacheParams.nrClients
+    val nrSlice              = cacheParams.nrSlice
+    val ways                 = cacheParams.ways
+    val sets                 = cacheParams.sets
+    val enablePrefetch       = cacheParams.prefetchParams.nonEmpty
+    val hasLowPowerInterface = cacheParams.hasLowPowerInterface
 
     def createDCacheNode(name: String, sources: Int) = {
         val masterNode = TLClientNode(
@@ -343,6 +344,7 @@ class SimpleL2CacheWrapperDecoupled(idRangeMax: Int = 16, nodeID: Int = 0)(impli
     lazy val module = new LazyModuleImp(this) {
         val io = IO(new Bundle {
             val prefetchOpt = if (enablePrefetch) Some(l2.module.io.prefetchOpt.get.cloneType) else None
+            val lowPowerOpt = if (hasLowPowerInterface) Some(new LowPowerIO) else None
         })
 
         (0 until nrCore).foreach { i =>
@@ -356,6 +358,10 @@ class SimpleL2CacheWrapperDecoupled(idRangeMax: Int = 16, nodeID: Int = 0)(impli
 
         io.prefetchOpt.foreach { prefetch =>
             prefetch <> l2.module.io.prefetchOpt.get
+        }
+
+        l2.module.io.lowPowerOpt.foreach { lowPower =>
+            lowPower <> io.lowPowerOpt.get
         }
 
         val l2_chi                  = IO(l2.module.io.chi.cloneType)
@@ -385,7 +391,7 @@ object SimpleL2CacheDecoupled extends App {
     xs.utils.Constantin.init(false)
 
     val config = new Config((_, _, _) => {
-        case DebugOptionsKey => DebugOptions()
+        case DebugOptionsKey => DebugOptions(EnablePerfDebug = false)
         case TLUserKey       => TLUserParams(aliasBits = 2, vaddrBits = 48)
         case L2ParamKey =>
             L2Param(
