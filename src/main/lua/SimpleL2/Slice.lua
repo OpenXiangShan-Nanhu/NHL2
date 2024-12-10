@@ -3419,12 +3419,12 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                     mp.valid_s4:expect(1)
                 env.negedge()
                     mp.valid_s5:expect(1)
+                env.negedge(2)
+                    mp.valid_s7:expect(1)
+                    mp.io_txdat_s7s8_valid:is(1)
+                    txdat.io_data_s7s8_valid:is(1)
                 env.negedge()
-                    mp.valid_s6:expect(1)
-                    mp.io_txdat_s6s7_valid:is(1)
-                    txdat.io_data_s6s7_valid:is(1)
-                env.negedge()
-                    mp.valid_s7:expect(0)
+                    mp.valid_s8:expect(0)
             end
 
             env.negedge()
@@ -3467,7 +3467,7 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpShared)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
-                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.ready:expect(1) -- The snoop is still allowed to enter the pipeline due to SnoopBuffer
             env.negedge()
                 chi_rxsnp.valid:set(0)
             env.expect_not_happen_until(20, function ()
@@ -3477,8 +3477,6 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             tl_c:probeack(snp_address, TLParam.TtoN, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
             
-            chi_rxsnp:snpshared(snp_address, 3, 0)
-
             do
                 verilua "appendTasks" {
                     function ()
@@ -3506,12 +3504,12 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                     mp.valid_s4:expect(1)
                 env.negedge()
                     mp.valid_s5:expect(1)
+                env.negedge(2)
+                    mp.valid_s7:expect(1)
+                    mp.io_txdat_s7s8_valid:is(1)
+                    txdat.io_data_s7s8_valid:is(1)
                 env.negedge()
-                    mp.valid_s6:expect(1)
-                    mp.io_txdat_s6s7_valid:is(1)
-                    txdat.io_data_s6s7_valid:is(1)
-                env.negedge()
-                    mp.valid_s7:expect(0)
+                    mp.valid_s8:expect(0)
             end
 
             env.negedge()
@@ -3576,12 +3574,12 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                     mp.valid_s4:expect(1)
                 env.negedge()
                     mp.valid_s5:expect(1)
+                env.negedge(2)
+                    mp.valid_s7:expect(1)
+                    mp.io_txdat_s7s8_valid:is(1)
+                    txdat.io_data_s7s8_valid:is(1)
                 env.negedge()
-                    mp.valid_s6:expect(1)
-                    mp.io_txdat_s6s7_valid:is(1)
-                    txdat.io_data_s6s7_valid:is(1)
-                env.negedge()
-                    mp.valid_s7:expect(0)
+                    mp.valid_s8:expect(0)
             end
 
             env.negedge()
@@ -3629,7 +3627,7 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
-                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.ready:expect(1) -- The snoop is still allowed to enter the pipeline due to SnoopBuffer
             env.negedge()
                 chi_rxsnp.valid:set(0)
             env.expect_not_happen_until(20, function ()
@@ -3639,8 +3637,6 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             tl_c:probeack(snp_address, TLParam.TtoN, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
             
-            chi_rxsnp:snpunique(snp_address, 3, 0)
-
             do
                 verilua "appendTasks" {
                     function ()
@@ -3668,12 +3664,12 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                     mp.valid_s4:expect(1)
                 env.negedge()
                     mp.valid_s5:expect(1)
+                env.negedge(2)
+                    mp.valid_s7:expect(1)
+                    mp.io_txdat_s7s8_valid:is(1)
+                    txdat.io_data_s7s8_valid:is(1)
                 env.negedge()
-                    mp.valid_s6:expect(1)
-                    mp.io_txdat_s6s7_valid:is(1)
-                    txdat.io_data_s6s7_valid:is(1)
-                env.negedge()
-                    mp.valid_s7:expect(0)
+                    mp.valid_s8:expect(0)
             end
 
             env.negedge()
@@ -3691,43 +3687,7 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             tl_e:grantack(0)  
         end
 
-        env.negedge(20)
-
-        -- do
-        --     local clientsOH = ("0b00"):number()
-        --     env.negedge()
-        --         write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TD, clientsOH)
-        --         write_dir(0x01, utils.uint_to_onehot(1), 0x02, MixedState.TD, clientsOH)
-        --         write_dir(0x01, utils.uint_to_onehot(2), 0x03, MixedState.TD, clientsOH)
-        --         write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TD, clientsOH)
-
-        --     local req_address = to_address(0x01, 0x05)
-        --     send_and_resp_request() -- address is to_address(0x01, 0x05)
-        --     chi_txreq.ready:set(0)
-
-        --     env.expect_not_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
-            
-        --     -- env.negedge()
-        --     --     chi_rxsnp:snpunique(req_address, 3, 0) -- Snoop should not be stalled since WriteBackFull is not fired! (commit: b3719d099be22dc1a55394ca9c96e4dc9baf735a)
-        --     env.negedge()
-        --         chi_rxsnp.ready:expect(1)
-        --         chi_rxsnp.bits.txnID:set(3)
-        --         chi_rxsnp.bits.addr:set(bit.rshift(req_address, 3), true)
-        --         chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
-        --         chi_rxsnp.bits.retToSrc:set(0)
-        --         chi_rxsnp.valid:set(1)
-        --         env.posedge()
-        --         chi_rxsnp.ready:expect(0) -- Snoop should be blocked beacuse cacheline of the req_address is already get comp/compdata. If we permitted to process incoming the Snoop, we may lost the cacheline data.
-        --     env.negedge(10)
-        --         chi_rxsnp.ready:expect(0)
-        --         chi_rxsnp.valid:set(0)
-        --     mshrs[0].state_w_compdat_first:expect(1)
-        --     mshrs[0].state_w_comp:expect(1)
-            
-        --     env.dut_reset()
-        -- end
-
-        env.posedge(100)
+        env.negedge(100)
     end
 }
 
@@ -3833,7 +3793,7 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpShared)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
-                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.ready:expect(1) -- The snoop is still allowed to enter the pipeline due to SnoopBuffer
             env.negedge()
                 chi_rxsnp.valid:set(0)
             env.expect_not_happen_until(20, function ()
@@ -3843,8 +3803,6 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
             tl_c:probeack(snp_address, TLParam.BtoN, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
             
-            chi_rxsnp:snpshared(snp_address, 3, 0)
-
             do
                 verilua "appendTasks" {
                     function ()
@@ -3971,7 +3929,7 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpShared)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
-                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.ready:expect(1) -- The snoop is still allowed to enter the pipeline due to SnoopBuffer
             env.negedge()
                 chi_rxsnp.valid:set(0)
             env.expect_not_happen_until(20, function ()
@@ -3981,8 +3939,6 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
             tl_c:probeack(snp_address, TLParam.TtoN, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
             
-            chi_rxsnp:snpshared(snp_address, 3, 0)
-
             do
                 verilua "appendTasks" {
                     function ()
@@ -4110,7 +4066,7 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpUnique)
                 chi_rxsnp.valid:set(1)
                 env.posedge()
-                chi_rxsnp.ready:expect(0)
+                chi_rxsnp.ready:expect(1) -- The snoop is still allowed to enter the pipeline due to SnoopBuffer
             env.negedge()
                 chi_rxsnp.valid:set(0)
             env.expect_not_happen_until(20, function ()
@@ -4120,8 +4076,6 @@ local test_snoop_nested_evict = env.register_test_case "test_snoop_nested_evict"
             tl_c:probeack(snp_address, TLParam.TtoN, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) end)
             
-            chi_rxsnp:snpunique(snp_address, 3, 0)
-
             do
                 verilua "appendTasks" {
                     function ()
@@ -8296,9 +8250,8 @@ verilua "mainTask" { function ()
     test_txrsp_mp_replay()
     test_sinkA_replay()
 
-    -- TODO:
-    -- test_snoop_nested_writebackfull()
-    -- test_snoop_nested_evict()
+    test_snoop_nested_writebackfull()
+    test_snoop_nested_evict()
     test_snoop_nested_read()
 
     test_multi_probe()
