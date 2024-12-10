@@ -6599,7 +6599,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
             -- 
             do
                 local function test(ret2src)
-                    printf("ret2src = %d", ret2src)
+                    printf("ret2src = %d\n", ret2src)
                     local addr = to_address(0x01, 0x01)
                     local ret2src = ret2src or 0
                     local src_id = 4
@@ -6635,10 +6635,11 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                             mp.io_mshrAlloc_s3_bits_realloc:expect(1)
                             if ret2src == 0 then
                                 env.expect_happen_until(20, function () return mp.valid_s3:is(1) and mp.task_s3_isMshrTask:is(1) and mp.task_s3_isCHIOpcode:is(1) and mp.task_s3_channel:is(3) --[[ TXRSP Channel ]] end)
+                                mp.io_dirWrite_s3_valid:expect(0) -- Not necessary to update directory info
                             else
-                                env.expect_happen_until(10, function () return mp.valid_s3:is(1) and mp.task_s3_isMshrTask:is(1) and mp.task_s3_isCHIOpcode:is(1) and mp.task_s3_channel:is(5) --[[ TXDAT Channel ]] end)
+                                -- Request is drop in stage2 since the data of the CompData comes from TempDataStorage and also the CompData will not update directory info
+                                -- env.expect_happen_until(10, function () return mp.valid_s3:is(1) and mp.task_s3_isMshrTask:is(1) and mp.task_s3_isCHIOpcode:is(1) and mp.task_s3_channel:is(5) --[[ TXDAT Channel ]] end)
                             end
-                            mp.io_dirWrite_s3_valid:expect(0) -- Not necessary to update directory info
                         end,
                         function ()
                             if ret2src == 0 then
@@ -6868,6 +6869,57 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
             end
         end
 
+        local function do_test_SnpNotSharedDirtyFwd_nested_ReleaseData()
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TTC, 0x01)
+
+            local ret2src = 0 -- ret2src should be 0 for SnpUniqueFwd
+            local src_id = 4
+            local txn_id = 0
+            local fwd_nid = 1
+            local fwd_txn_id = 2
+            local do_not_go_to_sd = 0
+            env.negedge()
+                chi_rxsnp:send_fwd_request(to_address(0x01, 0x01), OpcodeSNP.SnpNotSharedDirtyFwd, src_id, txn_id, ret2src, fwd_nid, fwd_txn_id, do_not_go_to_sd)
+        
+            env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toB) and tl_b.bits.source:is(0) end)
+            mshrs[0].io_status_valid:expect(1)
+            
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.ReleaseAck) end)
+                end
+            }
+            tl_c:release_data(to_address(0x01, 0x01), TLParam.TtoN, 0, "0xaabb1", "0xccdd1") -- core 0 release dirty data
+            env.expect_happen_until(20, function () return mshrs[0].nestedRelease:is(1) end)
+
+            tl_c:probeack(to_address(0x01, 0x01), TLParam.NtoN, 0)
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return mp.io_toDS_dsRead_s3_valid:is(1) end)
+                    mp.io_dirWrite_s3_valid:expect(0)
+                    
+                    env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.dataID:is(0) end)
+                    chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.resp:expect(CHIResp.SC); chi_txdat.bits.data:expect_hex_str("0xaabb1")
+                    env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.dataID:is(2) end)
+                    chi_txdat.bits.data:expect_hex_str("0xccdd1")
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                    env.negedge()
+                    mp.valid_snpdata_mp_s4:expect(1)
+
+                    env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.dataID:is(0) end)
+                    chi_txdat.bits.txnID:expect(txn_id); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.resp:expect(CHIResp.SC_PD); chi_txdat.bits.fwdState:expect(CHIResp.SC); chi_txdat.bits.data:expect_hex_str("0xaabb1")
+                    env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.dataID:is(2) end)
+                    chi_txdat.bits.data:expect_hex_str("0xccdd1")
+                end
+            }
+
+            env.negedge(100)
+        end
+
         -- Normal test cases without nested condition
         do_test_SnpNotSharedDirtyFwd(OpcodeSNP.SnpNotSharedDirtyFwd)
         do_test_SnpNotSharedDirtyFwd(OpcodeSNP.SnpSharedFwd) -- SnpSharedFwd and SnpNotSharedDirtyFwd are basically the same
@@ -6875,6 +6927,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
 
         do_test_SnpNotSharedDirtyFwd_nested()
         do_test_SnpUniqueFwd_nested()
+        do_test_SnpNotSharedDirtyFwd_nested_ReleaseData()
     end
 }
 

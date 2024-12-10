@@ -689,7 +689,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     mpTask_compdat.bits.isCHIOpcode := true.B
     mpTask_compdat.bits.opcode      := CHIOpcodeDAT.CompData
     mpTask_compdat.bits.channel     := CHIChannel.TXDAT
-    mpTask_compdat.bits.readTempDs  := true.B
+    mpTask_compdat.bits.readTempDs  := !releaseGotDirty
     mpTask_compdat.bits.tempDsDest  := DataDestination.TXDAT
     mpTask_compdat.bits.resp        := CHICohState.setPassDirty(fwdCacheState, fwdPassDirty)
     mpTask_compdat.bits.updateDir   := false.B      // Directory write-back is written by SnpResp[Data]Fwded, not CompData

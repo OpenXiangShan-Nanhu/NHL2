@@ -248,10 +248,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     // -----------------------------------------------------------------------------------------
     // Stage 3
     // -----------------------------------------------------------------------------------------
+    val reqDrop_s2 = task_s2.isMshrTask && task_s2.isCHIOpcode && task_s2.opcode === CompData && task_s2.channel === CHIChannel.TXDAT && task_s2.readTempDs && supportDCT.B
+
     val dirResp_s3     = io.dirResp_s3.bits
     val task_s3        = RegEnable(task_s2, 0.U.asTypeOf(new TaskBundle), valid_s2)
     val hasRetry_s3    = if (enableDataECC) hasRetry_s2e else RegEnable(hasRetry_s2, valid_s2)
-    val valid_s3       = RegNext(valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B), false.B)
+    val valid_s3       = RegNext(valid_s2 && !io.reqDrop_s2_opt.getOrElse(false.B) && !reqDrop_s2, false.B)
     val isSnpHitReq_s3 = task_s3.snpHitReq && valid_s3
     val hit_s3         = dirResp_s3.hit && io.dirResp_s3.valid // && !isSnpHitReq_s3 // hit is invalid for snpHitReq request
     val meta_s3        = dirResp_s3.meta
@@ -726,7 +728,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     }
 
     val valid_cbwrdata_mp_s3 = isCopyBack_s3 && task_s3.channel === CHIChannel.TXDAT && valid_s3
-    val valid_compdata_mp_s3 = isFwdSnoop_s3 && task_s3.channel === CHIChannel.TXDAT && valid_s3 && supportDCT.B
+    val valid_compdata_mp_s3 = isCompData_s3 && task_s3.channel === CHIChannel.TXDAT && valid_s3 && supportDCT.B
     val valid_snpdata_s3     = snpNeedData_b_s3 && !task_s3.isMshrTask && !mshrAlloc_s3 && !snpReplay_s3 && valid_s3
     val valid_snpdata_mp_s3  = mpTask_snpresp_s3 && !task_s3.readTempDs && task_s3.channel === CHIChannel.TXDAT && valid_s3
     val valid_snpresp_s3     = !snpNeedData_b_s3 && snpChnlReqOK_s3 && !snpReplay_s3
@@ -802,6 +804,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val snpRetry_s4          = RegEnable(snpRetry_s3, fire_s3)
     val refillRetry_s4       = RegEnable(refillRetry_s3, fire_s3)
     val copyBackRetry_s4     = RegEnable(copyBackRetry_s3, fire_s3)
+    val compDataRetry_s4     = RegEnable(compDataRetry_s3, fire_s3)
 
     val valid_s4              = RegNext(fire_s3, false.B)
     val needAllocDestSinkC_s4 = valid_s4 && RegEnable(needAllocDestSinkC_s3 && !valid_replay_s3, false.B, fire_s3)
@@ -882,12 +885,13 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val txrspStall_s4 = io.txrsp_s4.valid && !io.txrsp_s4.ready
     io.retryTasks.mshrId_s4                := task_s4.mshrId
-    io.retryTasks.stage4.valid             := valid_snpresp_mp_s4 || valid_snpdata_mp_s4 || valid_cbwrdata_mp_s4 || valid_refill_mp_s4
-    io.retryTasks.stage4.bits.isRetry_s4   := txrspStall_s4 || snpRetry_s4 || copyBackRetry_s4 || refillRetry_s4
+    io.retryTasks.stage4.valid             := valid_snpresp_mp_s4 || valid_snpdata_mp_s4 || valid_cbwrdata_mp_s4 || valid_compdata_mp_s4 || valid_refill_mp_s4
+    io.retryTasks.stage4.bits.isRetry_s4   := txrspStall_s4 || snpRetry_s4 || copyBackRetry_s4 || refillRetry_s4 || compDataRetry_s4
     io.retryTasks.stage4.bits.grant_s4     := valid_refill_mp_s4 && (task_s4.opcode === GrantData || task_s4.opcode === Grant)
     io.retryTasks.stage4.bits.accessack_s4 := valid_refill_mp_s4 && (task_s4.opcode === AccessAckData)
     io.retryTasks.stage4.bits.cbwrdata_s4  := valid_cbwrdata_mp_s4
     io.retryTasks.stage4.bits.snpresp_s4   := valid_snpresp_mp_s4 || valid_snpdata_mp_s4
+    io.retryTasks.stage4.bits.compdat_opt_s4.foreach(_ := valid_compdata_mp_s4)
 
     val refillNeedData_s4 = valid_refill_s4 && !task_s4.isCHIOpcode && needData(respOpcode_s4) || valid_refill_mp_s4 && RegEnable(refillNeedData_mp_s3, fire_s3)
     io.sourceD_s4.valid       := (valid_refill_s4 || valid_refill_mp_s4) && !refillNeedData_s4
@@ -904,9 +908,10 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val valid_snpdata_s5     = valid_s5 && RegEnable(valid_snpdata_s4, false.B, fire_s4)
     val valid_snpdata_mp_s5  = valid_s5 && RegEnable(valid_snpdata_mp_s4 && !snpRetry_s4, false.B, fire_s4)
     val valid_cbwrdata_mp_s5 = valid_s5 && RegEnable(valid_cbwrdata_mp_s4 && !copyBackRetry_s4, false.B, fire_s4)
+    val valid_compdata_mp_s5 = valid_s5 && RegEnable(valid_compdata_mp_s4 && !compDataRetry_s4, false.B, fire_s4)
     val valid_refill_s5      = valid_s5 && RegEnable(valid_refill_s4 && refillNeedData_s4, false.B, fire_s4)
     val valid_refill_mp_s5   = valid_s5 && RegEnable(valid_refill_mp_s4 && !refillRetry_s4 && refillNeedData_s4, false.B, fire_s4)
-    val fire_s5              = valid_refill_s5 || valid_cbwrdata_mp_s5 || valid_snpdata_s5 || valid_snpdata_mp_s5 || valid_refill_mp_s5
+    val fire_s5              = valid_refill_s5 || valid_cbwrdata_mp_s5 || valid_compdata_mp_s5 || valid_snpdata_s5 || valid_snpdata_mp_s5 || valid_refill_mp_s5
     val needsDataBuf_s5      = valid_snpdata_s5 || valid_snpdata_mp_s5 || valid_cbwrdata_mp_s5 || ((valid_refill_s5 || valid_refill_mp_s5) && (task_s5.opcode === AccessAckData || task_s5.opcode === GrantData))
 
     when(fire_s4) {
@@ -978,14 +983,15 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.sourceD_s7s8.valid := valid_s7 && isSourceD_s7 || valid_s8 && isSourceD_s8
     io.sourceD_s7s8.bits  := Mux(valid_s8 && isSourceD_s8, task_s8, task_s7)
 
-    io.txdat_s7s8.valid       := valid_s7 && isTXDAT_s7 || valid_s8 && isTXDAT_s8
-    io.txdat_s7s8.bits        := DontCare
-    io.txdat_s7s8.bits.tgtID  := Mux(valid_s8 && isTXDAT_s8, task_s8.tgtID, task_s7.tgtID)
-    io.txdat_s7s8.bits.txnID  := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
-    io.txdat_s7s8.bits.dbID   := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
-    io.txdat_s7s8.bits.be     := Fill(beatBytes, 1.U)
-    io.txdat_s7s8.bits.opcode := Mux(valid_s8 && isTXDAT_s8, task_s8.opcode, task_s7.opcode)
-    io.txdat_s7s8.bits.resp   := Mux(valid_s8 && isTXDAT_s8, task_s8.resp, task_s7.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.
+    io.txdat_s7s8.valid         := valid_s7 && isTXDAT_s7 || valid_s8 && isTXDAT_s8
+    io.txdat_s7s8.bits          := DontCare
+    io.txdat_s7s8.bits.tgtID    := Mux(valid_s8 && isTXDAT_s8, task_s8.tgtID, task_s7.tgtID)
+    io.txdat_s7s8.bits.txnID    := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
+    io.txdat_s7s8.bits.dbID     := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
+    io.txdat_s7s8.bits.be       := Fill(beatBytes, 1.U)
+    io.txdat_s7s8.bits.opcode   := Mux(valid_s8 && isTXDAT_s8, task_s8.opcode, task_s7.opcode)
+    io.txdat_s7s8.bits.resp     := Mux(valid_s8 && isTXDAT_s8, task_s8.resp, task_s7.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.
+    io.txdat_s7s8.bits.fwdState := Mux(valid_s8 && isTXDAT_s8, task_s8.fwdState_opt.getOrElse(DontCare), task_s7.fwdState_opt.getOrElse(DontCare))
 
     val mayUseDataBufCnt = PopCount(Cat(needsDataBuf_s4, needsDataBuf_s5, needsDataBuf_s6, valid_s7, valid_s8))
     hasValidDataBuf_s7s8 := mayUseDataBufCnt < 2.U // stage7 and stage8 has data buffer to be used
