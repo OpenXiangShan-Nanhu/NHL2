@@ -46,15 +46,31 @@ class TXDAT()(implicit p: Parameters) extends L2Module {
     skidBuffer.io.enq.bits.txdat := txdat
     skidBuffer.io.enq.bits.data  := Mux(io.task_s7s8.valid, io.data_s7s8.bits, io.data_s2.bits)
 
-    val isValidTXDAT_s2   = !(io.task_s2.bits.resp === Resp.I && io.task_s2.bits.opcode === CopyBackWrData) && io.task_s2.fire
-    val isValidTXDAT_s7s8 = !(io.task_s7s8.bits.resp === Resp.I && io.task_s7s8.bits.opcode === CopyBackWrData) && io.task_s7s8.fire
-    when(isValidTXDAT_s2 || isValidTXDAT_s7s8) {
-        assert(!(io.task_s2.fire && !io.data_s2.fire), "data_s2 should arrive with task_s2!")
-        assert(!(io.data_s2.fire && !io.task_s2.fire), "task_s2 should arrive with data_s2!")
-        assert(!(io.task_s7s8.fire && !io.data_s7s8.fire), "data_s7s8 should arrive with task_s7s8!")
-        assert(!(io.data_s7s8.fire && !io.task_s7s8.fire), "task_s7s8 should arrive with data_s7s8!")
-        assert(!(io.task_s2.valid ^ io.data_s2.valid), "task_s2 should be valid with data_s2 valid!")
-        assert(!(io.task_s7s8.valid ^ io.data_s7s8.valid), "task_s7s8 should be valid with task_s7s8 valid!")
+    val isValidTXDAT_s2   = !(io.task_s2.bits.resp === Resp.I && io.task_s2.bits.opcode === CopyBackWrData)
+    val isValidTXDAT_s7s8 = !(io.task_s7s8.bits.resp === Resp.I && io.task_s7s8.bits.opcode === CopyBackWrData)
+    when(io.task_s2.fire && isValidTXDAT_s2) {
+        assert(io.data_s2.fire, "data_s2 should arrive with task_s2!")
+    }
+    when(io.data_s2.fire) {
+        assert(io.task_s2.fire, "task_s2 should arrive with data_s2!")
+    }
+    when(io.task_s7s8.fire && isValidTXDAT_s7s8) {
+        assert(io.data_s7s8.fire, "data_s7s8 should arrive with task_s7s8!")
+    }
+    when(io.data_s7s8.fire) {
+        assert(io.task_s7s8.fire, "task_s7s8 should arrive with data_s7s8!")
+    }
+    when(io.task_s2.valid && isValidTXDAT_s2) {
+        assert(io.data_s2.valid, "task_s2 should be valid with data_s2 valid!")
+    }
+    when(io.data_s2.valid) {
+        assert(io.task_s2.valid, "data_s2 should be valid with task_s2 valid!")
+    }
+    when(io.task_s7s8.valid && isValidTXDAT_s7s8) {
+        assert(io.data_s7s8.valid, "task_s7s8 should be valid with data_s7s8 valid!")
+    }
+    when(io.data_s7s8.valid) {
+        assert(io.task_s7s8.valid, "data_s7s8 should be valid with task_s7s8 valid!")
     }
 
     val deq     = skidBuffer.io.deq
