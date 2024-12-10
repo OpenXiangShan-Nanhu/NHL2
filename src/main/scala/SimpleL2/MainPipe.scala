@@ -313,7 +313,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
     val mshrRealloc_s3  = (snpNeedMshr_s3 || isFwdSnoop_s3) && task_s3.snpHitReq && canAllocMshr_s3
     val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3 || isAtomic_s3) && canAllocMshr_s3
-    val mshrAlloc_b_s3  = ((needProbe_b_s3 || needDCT_s3) && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
+    val mshrAlloc_b_s3  = ((needProbe_b_s3 && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) || needDCT_s3) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
     val mshrAlloc_c_s3  = false.B                                                                                               // for inclusive cache, Release/ReleaseData always hit
     val mshrAlloc_lp_s3 = task_s3.isLowPowerTaskOpt.getOrElse(false.B) && dirResp_s3.hit
     val mshrAlloc_s3    = mshrAlloc_a_s3 || mshrAlloc_b_s3 || mshrAlloc_c_s3 || mshrRealloc_s3 || mshrAlloc_lp_s3
@@ -467,12 +467,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         mshrRealloc_s3,
         io.mshrAlloc_s3.ready,
         true.B
-    )) && !snpReplay_dup_s3 || task_s3.isMshrTask && (task_s3.channel === L2Channel.TXDAT || task_s3.channel === L2Channel.TXRSP) && task_s3.updateDir && task_s3.newMetaEntry.state === MixedState.I) && valid_s3
+    )) && !snpReplay_dup_s3 || task_s3.isMshrTask && (task_s3.channel === L2Channel.TXDAT || task_s3.channel === L2Channel.TXRSP) && task_s3.updateDir && MixedState(task_s3.newMetaEntry.dirty, task_s3.newMetaEntry.state) === MixedState.I) && valid_s3
     io.mshrNested_s3.snoop.toB := (isSnpToB_s3 && ((!mshrAlloc_b_s3 && hit_s3) || task_s3.snpHitReq && Mux(
         mshrRealloc_s3,
         io.mshrAlloc_s3.ready,
         true.B
-    )) && !snpReplay_dup_s3 || task_s3.isMshrTask && (task_s3.channel === L2Channel.TXDAT || task_s3.channel === L2Channel.TXRSP) && task_s3.updateDir && task_s3.newMetaEntry.state === MixedState.BC) && valid_s3
+    )) && !snpReplay_dup_s3 || task_s3.isMshrTask && (task_s3.channel === L2Channel.TXDAT || task_s3.channel === L2Channel.TXRSP) && task_s3.updateDir && MixedState(task_s3.newMetaEntry.dirty, task_s3.newMetaEntry.state) === MixedState.BC) && valid_s3
     io.mshrNested_s3.release.setDirty := task_s3.isChannelC && task_s3.opcode === ReleaseData && task_s3.param === TtoN && valid_s3
     io.mshrNested_s3.release.TtoN     := (isRelease_s3 || isReleaseData_s3) && task_s3.param === TtoN && valid_s3
     io.mshrNested_s3.release.BtoN     := (isRelease_s3 || isReleaseData_s3) && task_s3.param === BtoN && valid_s3

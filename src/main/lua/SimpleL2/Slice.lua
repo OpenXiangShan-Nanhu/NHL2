@@ -3440,11 +3440,11 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
             env.negedge()
-            tl_e:grantack(0)  
+            tl_e:grantack(0)
+
+            env.negedge(20)
         end
 
-        env.negedge(20)
-        
         do
             -- SnpShared nested at TTD state, snoop wait rprobe finish
             local clientsOH = ("0b01"):number()
@@ -3524,10 +3524,10 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
             env.negedge()
-            tl_e:grantack(0)  
-        end
+            tl_e:grantack(0)
 
-        env.negedge(20)
+            env.negedge(20)
+        end
 
         do
             -- SnpUnique nested at TD state
@@ -3600,10 +3600,10 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) and be:is(0) and data:is_hex_str("0x0") end)
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) and be:is(0) and data:is_hex_str("0x0") end)
             env.negedge()
-            tl_e:grantack(0)  
-        end
+            tl_e:grantack(0)
 
-        env.negedge(20)
+            env.negedge(20)
+        end
 
         do
             -- SnpUnique nested at TTD state, snoop wait rprobe finish
@@ -3684,7 +3684,88 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) end)
             env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) end)
             env.negedge()
-            tl_e:grantack(0)  
+            tl_e:grantack(0)
+
+            env.negedge(20)  
+        end
+
+        -- 
+        -- Forward Snoop
+        -- 
+        do
+            -- SnpNotSharedDirtyFwd nested at TD state
+            local clientsOH = ("0b00"):number()
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TD, clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(1), 0x02, MixedState.TD, clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(2), 0x03, MixedState.TD, clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TD, clientsOH)
+            env.negedge()
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead}, {s = 256, e = 256 + 63, v = 0xbeef}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(1), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead1}, {s = 256, e = 256 + 63, v = 0xbeef1}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(2), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead2}, {s = 256, e = 256 + 63, v = 0xbeef2}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(3), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead3}, {s = 256, e = 256 + 63, v = 0xbeef3}}, 512))
+
+            send_and_resp_request()
+
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
+            local snp_address = tonumber(chi_txreq.bits.addr:get())
+            local expect_datas = assert(({
+                [to_address(0x01, 0x01)] = {"0xdead", "0xbeef"},
+                [to_address(0x01, 0x02)] = {"0xdead1", "0xbeef1"},
+                [to_address(0x01, 0x03)] = {"0xdead2", "0xbeef2"},
+                [to_address(0x01, 0x04)] = {"0xdead3", "0xbeef3"},
+            })[snp_address])
+            print(("SnpNotSharedDirtyFwd nested at TD, snp_address is 0x%x"):format(snp_address))
+
+            -- When MSHR is waiting for CompDBIDResp, a snoop is comming
+            local src_id = 4
+            local ret2src = 0
+            local txn_id = 0
+            local fwd_nid = 1
+            local fwd_txn_id = 2
+            local do_not_go_to_sd = 0
+            chi_rxsnp:send_fwd_request(snp_address, OpcodeSNP.SnpNotSharedDirtyFwd, src_id, txn_id, ret2src, fwd_nid, fwd_txn_id, do_not_go_to_sd)
+
+            env.expect_happen_until(10, function () return mpReq_s2:fire() and mpReq_s2.bits.channel:is(0x02) and mpReq_s2.bits.snpHitWriteBack:is(1) end)
+
+            verilua "appendTasks" {
+                function ()
+                    env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x00) and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.data:is_hex_str(expect_datas[1]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.SC_PD); chi_txdat.bits.tgtID:expect(src_id); chi_txdat.bits.txnID:expect(txn_id)
+                    env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x02) and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.data:is_hex_str(expect_datas[2]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.SC_PD)
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x00) and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.data:is_hex_str(expect_datas[1]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.SC); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.txnID:expect(fwd_txn_id)
+                    env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x02) and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.data:is_hex_str(expect_datas[2]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.SC)
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return mshrs[0].io_nested_snoop_toB:is(1) end)
+                    env.negedge()
+                    env.expect_not_happen_until(10, function () return mshrs[0].io_nested_snoop_toB:is(1) end)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return mshrs[1].io_status_valid:is(1) end)
+                end
+            }
+
+            env.negedge(50)
+                chi_rxrsp:comp_dbidresp(0, 3)
+            
+            verilua "appendTasks" {
+                function ()
+                    env.expect_happen_until(10, function () return reqArb.io_tempDsRead_s1_valid:is(1) end)
+                    env.expect_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            local dataID, opcode, resp = chi_txdat.bits.dataID, chi_txdat.bits.opcode, chi_txdat.bits.resp
+            env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
+            env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.SC) end)
+            env.negedge()
+            tl_e:grantack(0)
         end
 
         env.negedge(100)
