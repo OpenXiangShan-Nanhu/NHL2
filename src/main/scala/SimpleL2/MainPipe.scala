@@ -996,7 +996,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txdat_s7s8.bits.tgtID    := Mux(valid_s8 && isTXDAT_s8, task_s8.tgtID, task_s7.tgtID)
     io.txdat_s7s8.bits.txnID    := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
     io.txdat_s7s8.bits.homeNID  := Mux(valid_s8 && isTXDAT_s8, task_s8.srcID, task_s7.srcID)
-    io.txdat_s7s8.bits.dbID     := Mux(valid_s8 && isTXDAT_s8, task_s8.txnID, task_s7.txnID)
+    io.txdat_s7s8.bits.dbID     := Mux(valid_s8 && isTXDAT_s8, task_s8.dbID, task_s7.dbID)
     io.txdat_s7s8.bits.be       := Fill(beatBytes, 1.U)
     io.txdat_s7s8.bits.opcode   := Mux(valid_s8 && isTXDAT_s8, task_s8.opcode, task_s7.opcode)
     io.txdat_s7s8.bits.resp     := Mux(valid_s8 && isTXDAT_s8, task_s8.resp, task_s7.resp) // For WriteData responses, this field indicates the state of the data in the Request Node when the data is sent.

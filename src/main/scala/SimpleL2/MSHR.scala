@@ -721,6 +721,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     mpTask_snpresp.valid            := !state.s_snpresp && state.w_sprobeack && state.s_compdat && state.w_compdat_sent && Mux(mpTask_snpresp.bits.readTempDs, tempDsWriteFinish_dup, true.B)
     mpTask_snpresp.bits.tgtID       := snpSrcID
     mpTask_snpresp.bits.txnID       := snpTxnID
+    mpTask_snpresp.bits.dbID        := 0.U
     mpTask_snpresp.bits.isCHIOpcode := true.B
     mpTask_snpresp.bits.opcode      := Mux(snprespNeedData, Mux(isSnpFwd, SnpRespDataFwded, SnpRespData), Mux(isSnpFwd, SnpRespFwded, SnpResp))
     mpTask_snpresp.bits.resp        := stateToResp(snprespFinalState, snprespFinalDirty, snprespPassDirty) // In SnpResp*, resp indicates the final cacheline state after receiving the Snp* transaction.
