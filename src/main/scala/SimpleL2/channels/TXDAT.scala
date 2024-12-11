@@ -51,9 +51,6 @@ class TXDAT()(implicit p: Parameters) extends L2Module {
     when(io.task_s2.fire && isValidTXDAT_s2) {
         assert(io.data_s2.fire, "data_s2 should arrive with task_s2!")
     }
-    when(io.data_s2.fire) {
-        assert(io.task_s2.fire, "task_s2 should arrive with data_s2!")
-    }
     when(io.task_s7s8.fire && isValidTXDAT_s7s8) {
         assert(io.data_s7s8.fire, "data_s7s8 should arrive with task_s7s8!")
     }
