@@ -46,6 +46,7 @@ local ms = slice.missHandler
 local dir = slice.dir
 local ds = slice.ds
 local tempDS = slice.tempDS
+local sourceB = slice.sourceB
 local sourceD = slice.sourceD
 local txrsp = slice.txrsp
 local txdat = slice.txdat
@@ -4515,9 +4516,8 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
         tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
 
         do
-            local clientsOH = ("0b00"):number()
             env.negedge(20)
-                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TC, clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TC, 0x00)
 
             local source = 4
             local sink = nil
@@ -4530,13 +4530,39 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
             
             chi_rxsnp:snpunique(to_address(0x01, 0x01), 4, 0)
             env.expect_not_happen_until(50, function () return tl_b:fire() end) -- Probe is blocked by the pending GrantAck
+            sourceB.shouldBlock_sinke:expect(1)
             
             env.negedge()
                 tl_e:grantack(sink)
             env.expect_happen_until(10, function() return tl_b:fire() end)
-
-            env.dut_reset()
         end
+
+        do
+            env.dut_reset()
+            resetFinish:posedge()
+
+            tl_d.ready:set(0)
+            
+            env.negedge(20)
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TC, 0x00)
+
+            local source = 4
+            local sink = nil
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x01), TLParam.NtoT, source)
+            
+            chi_rxsnp:snpunique(to_address(0x01, 0x01), 4, 0)
+            fork {
+                function ()
+                    env.expect_not_happen_until(50, function () return tl_b:fire() end) -- Probe is blocked by the pending GrantData
+                end
+            }
+            env.expect_not_happen_until(100, function () return tl_d:fire() end)
+            sourceB.shouldBlock_buffer:expect(1)
+        end
+
+        env.dut_reset()
+        resetFinish:posedge()
 
         env.posedge(100)
     end
@@ -8152,6 +8178,7 @@ local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release"
             reqArb.blockC_s1:expect(1)
             tl_c.ready:expect(0)
         env.expect_happen_until(10, function () return tl_c:fire() end)
+        env.negedge()
             tl_c.valid:set(0)
         env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.ReleaseAck) end)
 

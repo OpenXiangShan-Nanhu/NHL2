@@ -22,7 +22,6 @@ class SinkA()(implicit p: Parameters) extends L2Module {
     io.a    <> DontCare
     io.task <> DontCare
 
-    // TODO: Atomic mask
     val isAtomicReq     = io.a.bits.opcode === TLMessages.ArithmeticData || io.a.bits.opcode === TLMessages.LogicalData
     val amoDataBufReady = if (enableBypassAtomic) io.amoDataBufWrOpt.get.ready else true.B
 
