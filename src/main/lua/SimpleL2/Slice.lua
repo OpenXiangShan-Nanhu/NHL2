@@ -8323,6 +8323,156 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
     end
 }
 
+local test_SnpCleanShared = env.register_test_case "test_SnpCleanShared" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        -- SnpCleanShared on I
+        do
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.I)
+            env.negedge()
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpCleanShared, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.io_mshrAlloc_s3_valid:is(1) end)
+                end,
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0) and chi_txrsp.bits.tgtID:is(3) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+            env.negedge(100)
+        end
+
+        local test_hit_no_mshr = function (state, client)
+            print("test_hit_no_client, stae => " .. MixedState(state), "client => " .. client)
+            local expect_resp, dirty, expect_state = table.unpack(({
+                [MixedState.BC] = { CHIResp.SC, false, nil },
+                [MixedState.TC] = { CHIResp.UC, false, nil },
+                [MixedState.BD] = { CHIResp.SC_PD, true, MixedState.BC },
+                [MixedState.TD] = { CHIResp.UC_PD, true, MixedState.TC }
+            })[state])
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, state, client)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+            env.negedge()
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpCleanShared, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.io_mshrAlloc_s3_valid:is(1) end)
+                end,
+                function ()
+                    env.expect_not_happen_until(10, function () return ds.io_refillWrite_s2_valid:is(1) end)
+                end,
+                function ()
+                    if dirty then
+                        env.expect_happen_until(10, function () return mp.task_s3_isMshrTask:is(0) and mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(expect_state) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
+                    else
+                        env.expect_not_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                    end
+                end
+            }
+            if dirty then
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0) and chi_txdat.bits.resp:is(expect_resp) and chi_txdat.bits.dataID:is(0) end)
+                chi_txdat.bits.data:expect_hex_str("0xd1e1ad")
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0) and chi_txdat.bits.resp:is(expect_resp) and chi_txdat.bits.dataID:is(2) end)
+                chi_txdat.bits.data:expect_hex_str("0xb1e1ef")
+            else
+                env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0) and chi_txrsp.bits.tgtID:is(3) and chi_txrsp.bits.resp:is(expect_resp) end)
+            end
+            env.negedge(100)
+        end
+        test_hit_no_mshr(MixedState.BC, 0x00)
+        test_hit_no_mshr(MixedState.TC, 0x00)
+        test_hit_no_mshr(MixedState.BD, 0x00)
+        test_hit_no_mshr(MixedState.TD, 0x00)
+        test_hit_no_mshr(MixedState.BC, 0x01)
+        test_hit_no_mshr(MixedState.TC, 0x01)
+        test_hit_no_mshr(MixedState.BD, 0x01)
+        test_hit_no_mshr(MixedState.TD, 0x01)
+        test_hit_no_mshr(MixedState.TC, 0x03)
+        test_hit_no_mshr(MixedState.TD, 0x03)
+        
+        local test_hit_has_mshr = function (state, probeack_data, client)
+            print("test_hit_has_client, state => " .. MixedState(state), "probeack_data => " .. tostring(probeack_data), "client => " .. client)
+            local expect_resp, dirty, expect_state = table.unpack(({
+                [MixedState.TTC] = { probeack_data and CHIResp.UC_PD or CHIResp.UC, false, MixedState.TTC },
+                [MixedState.TTD] = { CHIResp.UC_PD, true, MixedState.TTC },
+            })[state])
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, state, client)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+            env.negedge()
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpCleanShared, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            env.expect_happen_until(10, function () return mp.io_mshrAlloc_s3_valid:is(1) end)
+            
+            env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toB) and tl_b.bits.source:is(0) end)
+
+            if probeack_data then
+                tl_c:probeack_data(to_address(0x01, 0x01), TLParam.TtoB, "0xabab", "0xefef", 0)
+            else
+                tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoB, 0)
+            end
+
+            fork {
+                function ()
+                    if dirty or probeack_data then
+                        env.expect_happen_until(10, function () return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(expect_state) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(client) end)
+                    else
+                        env.expect_not_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                    end
+                end,
+
+                function ()
+                    if probeack_data then
+                        local data_hex_str = utils.bitpat_to_hexstr({
+                            {s = 0,   e = 63, v = 0xabab},
+                            {s = 256, e = 256 + 63, v = 0xefef}
+                        }, 512)
+                        env.expect_happen_until(10, function () return ds.io_refillWrite_s2_valid:is(1) end)
+                        ds.io_refillWrite_s2_bits_data:expect_hex_str(data_hex_str)
+                    end
+                end
+            }
+
+            if dirty or probeack_data then
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0) and chi_txdat.bits.resp:is(expect_resp) and chi_txdat.bits.dataID:is(0) end)
+                if probeack_data then
+                    chi_txdat.bits.data:expect_hex_str("0xabab")
+                else
+                    chi_txdat.bits.data:expect_hex_str("0xd1e1ad")
+                end
+                env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.txnID:is(0) and chi_txdat.bits.resp:is(expect_resp) and chi_txdat.bits.dataID:is(2) end)
+                if probeack_data then
+                    chi_txdat.bits.data:expect_hex_str("0xefef")
+                else
+                    chi_txdat.bits.data:expect_hex_str("0xb1e1ef")
+                end
+            else
+                env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.txnID:is(0) and chi_txrsp.bits.tgtID:is(3) and chi_txrsp.bits.resp:is(expect_resp) end)
+            end
+
+            env.negedge(100)
+            mshrs[0].io_status_valid:expect(0)
+        end
+
+        test_hit_has_mshr(MixedState.TTC, false, 0x01)
+        test_hit_has_mshr(MixedState.TTC, true, 0x01)
+        test_hit_has_mshr(MixedState.TTD, false, 0x01)
+        test_hit_has_mshr(MixedState.TTD, true, 0x01)
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -8415,6 +8565,7 @@ verilua "mainTask" { function ()
     test_SnpOnceFwd()
     test_s2s3_block_release()
     test_atomic_load_and_swap()
+    test_SnpCleanShared()
     end
 
    

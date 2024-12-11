@@ -509,19 +509,19 @@ local function build_channel(tl_prefix, chi_prefix)
     end
     
     chi_rxsnp.snpshared = function (this, addr, txn_id, ret2src, src_id)
-        chi_rxsnp:send_request(addr, OpcodeSNP.SnpShared, txn_id, ret2src, src_id)
+        this:send_request(addr, OpcodeSNP.SnpShared, txn_id, ret2src, src_id)
     end
     
     chi_rxsnp.snpunique = function (this, addr, txn_id, ret2src, src_id)
-        chi_rxsnp:send_request(addr, OpcodeSNP.SnpUnique, txn_id, ret2src, src_id)
+        this:send_request(addr, OpcodeSNP.SnpUnique, txn_id, ret2src, src_id)
     end
 
     chi_rxsnp.snpcleaninvalid = function (this, addr, txn_id, ret2src, src_id)
-        chi_rxsnp:send_request(addr, OpcodeSNP.SnpCleanInvalid, txn_id, ret2src, src_id)
+        this:send_request(addr, OpcodeSNP.SnpCleanInvalid, txn_id, ret2src, src_id)
     end
 
     chi_rxsnp.snponce = function (this, addr, txn_id, ret2src, src_id)
-        chi_rxsnp:send_request(addr, OpcodeSNP.SnpOnce, txn_id, ret2src, src_id)
+        this:send_request(addr, OpcodeSNP.SnpOnce, txn_id, ret2src, src_id)
     end
 
     return {

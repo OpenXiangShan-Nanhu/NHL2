@@ -278,7 +278,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isSnpToN_s3       = CHIOpcodeSNP.isSnpToN(task_s3.opcode) && task_s3.isChannelB
     val isSnpToB_s3       = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && task_s3.isChannelB
     val isSnpOnceX_s3     = CHIOpcodeSNP.isSnpOnceX(task_s3.opcode) && task_s3.isChannelB
-    val isSnoop_s3        = isSnpToB_s3 || isSnpToN_s3 || isSnpOnceX_s3
+    val isSnoop_s3        = isSnpToB_s3 || isSnpToN_s3 || isSnpOnceX_s3 || CHIOpcodeSNP.isSnpCleanShared(task_s3.opcode)
     val isFwdSnoop_s3     = CHIOpcodeSNP.isSnpXFwd(task_s3.opcode) && supportDCT.B
     val isReleaseData_s3  = task_s3.opcode === ReleaseData && task_s3.isChannelC
     val isRelease_s3      = task_s3.opcode === Release && task_s3.isChannelC
@@ -307,9 +307,10 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val needProbe_a_s3       = task_s3.isChannelA && (hit_s3 && needProbeOnHit_a_s3 || !hit_s3 && needProbeOnMiss_a_s3)
 
     val needProbe_snpOnceX_s3 = CHIOpcodeSNP.isSnpOnceX(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
-    val needProbe_snpToB_s3   = (CHIOpcodeSNP.isSnpToB(task_s3.opcode) || task_s3.opcode === SnpCleanShared) && dirResp_s3.hit && meta_s3.isTrunk
+    val needProbe_snpToB_s3   = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
     val needProbe_snpToN_s3   = (CHIOpcodeSNP.isSnpUniqueX(task_s3.opcode) || CHIOpcodeSNP.isSnpMakeInvalidX(task_s3.opcode) || task_s3.opcode === SnpCleanInvalid) && dirResp_s3.hit && meta_s3.clientsOH.orR
-    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3)
+    val needProbe_snpClean_s3 = CHIOpcodeSNP.isSnpCleanShared(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
+    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3 || needProbe_snpClean_s3)
     val needDCT_s3            = isFwdSnoop_s3 && hit_s3 && supportDCT.B
 
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
@@ -553,7 +554,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
      *     => Prefetch only change the L2 state and not response upwards to L1
      */
     val snpNotUpdateDir_s3 = {
-        val opcodes       = VecInit(SnpShared, SnpNotSharedDirty) ++ { if (supportDCT) Seq(SnpSharedFwd, SnpNotSharedDirtyFwd) else Nil }
+        val opcodes       = VecInit(SnpShared, SnpNotSharedDirty, SnpCleanShared) ++ { if (supportDCT) Seq(SnpSharedFwd, SnpNotSharedDirtyFwd) else Nil }
         val opcodeMatchOH = VecInit(opcodes.map(_ === task_s3.opcode))
 
         // @formatter:off
@@ -561,7 +562,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
             !dirResp_s3.hit ||
             dirResp_s3.hit && (
                 meta_s3.isBranch && (!meta_s3.isDirty && opcodeMatchOH.asUInt.orR || isSnpOnceX_s3) ||
-                meta_s3.isTip && isSnpOnceX_s3
+                meta_s3.isTip && (!meta_s3.isDirty && task_s3.opcode === SnpCleanShared || isSnpOnceX_s3)
             ) ||
             task_s3.snpHitWriteBack ||
             task_s3.snpHitReq
@@ -582,8 +583,15 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         clientsOH = reqClientOH_s3 | meta_s3.clientsOH
     )
 
-    val snprespPassDirty_s3  = !isSnpOnceX_s3 && meta_s3.isDirty && hit_s3 || task_s3.snpHitWriteBack && task_s3.snpGotDirty
-    val snprespFinalState_s3 = Mux(isSnpToN_s3, MixedState.I, Mux(task_s3.opcode === SnpCleanShared || isSnpOnceX_s3, meta_s3.state, MixedState.BC))
+    val snprespPassDirty_s3 = !isSnpOnceX_s3 && meta_s3.isDirty && hit_s3 || task_s3.snpHitWriteBack && task_s3.snpGotDirty
+    val snprespFinalState_s3 = MuxCase(
+        MixedState.BC,
+        Seq(
+            (isSnpToN_s3                         -> MixedState.I),
+            (isSnpOnceX_s3                       -> meta_s3.state),
+            ((task_s3.opcode === SnpCleanShared) -> MixedState.cleanDirty(meta_s3.state))
+        )
+    )
     val newMeta_b_s3 = DirectoryMetaEntry(
         state = snprespFinalState_s3,
         tag = meta_s3.tag,
