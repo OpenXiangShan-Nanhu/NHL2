@@ -5959,8 +5959,7 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     end,
                     function ()
                         env.expect_happen_until(15, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xde1ad end)
-                        chi_txdat.bits.txnID:expect(fwd_txn_id)
-                        chi_txdat.bits.tgtID:expect(fwd_nid)
+                        chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.homeNID:expect(src_id)
                         env.expect_happen_until(10, function() return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.resp:is(CHIResp.SC) and chi_txdat.bits.data:get()[1] == 0xbe1ef end)
                     end,
                     function ()
@@ -6901,7 +6900,8 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
                     mp.io_dirWrite_s3_valid:expect(0)
                     
                     env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.dataID:is(0) end)
-                    chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.resp:expect(CHIResp.SC); chi_txdat.bits.data:expect_hex_str("0xaabb1")
+                    chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.homeNID:expect(src_id)
+                    chi_txdat.bits.resp:expect(CHIResp.SC); chi_txdat.bits.data:expect_hex_str("0xaabb1")
                     env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.dataID:is(2) end)
                     chi_txdat.bits.data:expect_hex_str("0xccdd1")
                 end,
