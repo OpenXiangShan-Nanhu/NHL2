@@ -308,6 +308,7 @@ local function build_channel(tl_prefix, chi_prefix)
         | data
         | be
         | fwdState
+        | homeNID
     ]]):bundle {hier = cfg.top, is_decoupled = true, prefix = chi_prefix .. "txdat_", name = "chi_txdat"}
     
     local chi_txrsp = ([[

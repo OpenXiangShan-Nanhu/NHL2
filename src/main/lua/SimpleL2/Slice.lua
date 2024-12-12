@@ -4561,6 +4561,43 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
             sourceB.shouldBlock_buffer:expect(1)
         end
 
+        do
+            env.dut_reset()
+            resetFinish:posedge()
+
+            tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+            
+            mp.io_sourceD_s7s8_ready:set_force(0)
+            sourceD.io_data_s7s8_ready:set_force(0)
+
+            env.negedge(20)
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TTC, 0x01)
+                write_dir(0x01, utils.uint_to_onehot(1), 0x02, MixedState.TTC, 0x01)
+                write_dir(0x01, utils.uint_to_onehot(2), 0x03, MixedState.TTC, 0x01)
+                write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TC, 0x01)
+            
+            local source = 4
+            dir.finalWayOH_s3:set_force(utils.uint_to_onehot(3))
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, source)
+
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadUnique) end)
+            chi_rxdat:compdat(0, "0xdead22", "0xbeef22", 5, CHIResp.UC)
+
+            tl_a:acquire_block(to_address(0x01, 0x04), TLParam.BtoT, source)
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return mshrs[0].state_s_rprobe:is(1) end)
+                end
+            }
+            env.expect_happen_until(100, function () return sourceB.shouldBlock_mp:is(1) end)
+
+            dir.finalWayOH_s3:set_release()
+            mp.io_sourceD_s7s8_ready:set_release()
+            sourceD.io_data_s7s8_ready:set_release()
+        end
+
         env.dut_reset()
         resetFinish:posedge()
 

@@ -35,11 +35,9 @@ local function negedge(cycles, cycle_action_func)
 end
 
 local function dut_reset()
-    -- clock:posedge()
     dut.reset = 1
     clock:negedge(10)
     dut.reset = 0
-    -- clock:negedge()
 end
 
 
