@@ -29,7 +29,6 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val taskSnoop_s1 = Flipped(Decoupled(new TaskBundle))
 
         /** Other request */
-        val taskCMO_s1         = Flipped(Decoupled(new TaskBundle))
         val lowPowerTaskOpt_s1 = if (hasLowPowerInterface) Some(Flipped(Decoupled(new LowPowerToReqArb))) else None
 
         /** Read directory */
@@ -275,15 +274,11 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     blockC_s1 := addrConflict_forSinkC || noSpaceForNonDataResp || mayReadDS_s2 || willWriteDS_s2 || Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)
 
     /** Task priority: MSHR > CMO > SinkC > Snoop > Replay > SinkA */
-    val opcodeSinkC_s1 = io.taskSinkC_s1.bits.opcode
-    val otherTasks_s1  = Seq(io.taskCMO_s1, io.taskSnoop_s1, io.taskSinkC_s1, io.taskSinkA_s1)
-    val chnlTask_s1    = WireInit(0.U.asTypeOf(Decoupled(new TaskBundle)))
-    val arb            = Module(new Arbiter(chiselTypeOf(chnlTask_s1.bits), otherTasks_s1.size))
-    val arbTaskCMO     = arb.io.in(0) // TODO: CMO Task
-    val arbTaskSinkC   = arb.io.in(1)
-    val arbTaskSnoop   = arb.io.in(2)
-    val arbTaskSinkA   = arb.io.in(3)
-    io.taskCMO_s1   <> arbTaskCMO
+    val chnlTask_s1  = WireInit(0.U.asTypeOf(Decoupled(new TaskBundle)))
+    val arb          = Module(new Arbiter(chiselTypeOf(chnlTask_s1.bits), 3))
+    val arbTaskSinkC = arb.io.in(0)
+    val arbTaskSnoop = arb.io.in(1)
+    val arbTaskSinkA = arb.io.in(2)
     io.taskSinkC_s1 <> arbTaskSinkC // TODO: Store Miss Release / PutPartial?
     io.taskSnoop_s1 <> arbTaskSnoop
     io.taskSinkA_s1 <> arbTaskSinkA
@@ -376,7 +371,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         io.amoDataBufRdOpt.get.bits.idx := mshrTask_s1.amoBufIdOpt.get
     }
 
-    val fireVec_s1 = VecInit(Seq(io.taskSinkA_s1.fire, io.taskSinkC_s1.fire, io.taskSnoop_s1.fire, io.taskCMO_s1.fire)).asUInt
+    val fireVec_s1 = VecInit(Seq(io.taskSinkA_s1.fire, io.taskSinkC_s1.fire, io.taskSnoop_s1.fire)).asUInt
     assert(PopCount(fireVec_s1) <= 1.U, "fireVec_s1:%b", fireVec_s1)
     assert(!(fire_s1 && task_s1.updateDir && !task_s1.isMshrTask), "task_s1.updateDir is only valid when task_s1.isMshrTask is TRUE!")
 

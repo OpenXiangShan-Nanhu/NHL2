@@ -136,7 +136,6 @@ class Slice()(implicit p: Parameters) extends L2Module {
 
     sinkA.io.sliceId := io.sliceId
 
-    reqArb.io.taskCMO_s1               := DontCare // TODO: CMO Task
     reqArb.io.taskMSHR_s0              <> missHandler.io.tasks.mpTask
     reqArb.io.taskSinkA_s1             <> reqArbTaskSinkA
     reqArb.io.taskSnoop_s1             <> snpBuf.io.taskOut
