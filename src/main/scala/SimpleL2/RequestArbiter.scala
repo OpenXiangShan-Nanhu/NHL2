@@ -267,7 +267,11 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
 
     blockB_s1 := reqBlockSnpVec_forSnoop.orR || mshrBlockSnpVec_forSnoop.orR || blockB_mayReadDS || io.fromSinkC.willWriteDS_s1 || setConflict_forSnoop
 
-    val needNonDataResp_s2    = valid_s2 && Mux(task_s2.isMshrTask, !task_s2.isCHIOpcode && !task_s2.isReplTask && (task_s2.opcode === Grant || task_s2.opcode === HintAck), task_s2.isChannelC)
+    val needNonDataResp_s2 = valid_s2 && Mux(
+        task_s2.isMshrTask,
+        !task_s2.isCHIOpcode && !task_s2.isReplTask && (task_s2.opcode === Grant || task_s2.opcode === HintAck && task_s2.param =/= 0.U),
+        task_s2.isChannelC
+    )
     val noSpaceForNonDataResp = io.nonDataRespCnt >= Mux(needNonDataResp_s2, (nrNonDataSourceDEntry - 2).U, (nrNonDataSourceDEntry - 1).U) // No space for ReleaseAck to send out to SourceD
     val addrConflict_forSinkC = valid_s2 && task_s2.updateDir && task_s2.set === taskSinkC_s1.set && task_s2.tag === taskSinkC_s1.tag || valid_s3 && updateDir_s3 && set_s3 === taskSinkC_s1.set && tag_s3 === taskSinkC_s1.tag
 
@@ -332,10 +336,14 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     )
     dontTouch(task_s1)
 
-    val tempDsToDs_s1     = (io.tempDsRead_s1.bits.dest & DataDestination.DataStorage).orR
-    val mayReadDS_a_s1    = io.taskSinkA_s1.bits.opcode === AcquireBlock || io.taskSinkA_s1.bits.opcode === Get || io.taskSinkA_s1.bits.opcode === AcquirePerm
-    val mayReadDS_b_s1    = task_s1.isChannelB
-    val mayReadDS_mshr_s1 = (mshrTask_s1.isCHIOpcode && (mshrTask_s1.opcode === CopyBackWrData || mshrTask_s1.opcode === SnpRespData || mshrTask_s1.opcode === SnpRespDataFwded || mshrTask_s1.opcode === CompData) && mshrTask_s1.channel === CHIChannel.TXDAT) || (!mshrTask_s1.isCHIOpcode && (mshrTask_s1.opcode === GrantData || mshrTask_s1.opcode === AccessAckData))
+    val tempDsToDs_s1  = (io.tempDsRead_s1.bits.dest & DataDestination.DataStorage).orR
+    val mayReadDS_a_s1 = io.taskSinkA_s1.bits.opcode === AcquireBlock || io.taskSinkA_s1.bits.opcode === Get || io.taskSinkA_s1.bits.opcode === AcquirePerm
+    val mayReadDS_b_s1 = task_s1.isChannelB
+    val mayReadDS_mshr_s1 = Mux(
+        mshrTask_s1.isCHIOpcode,
+        mshrTask_s1.channel === CHIChannel.TXDAT && (mshrTask_s1.opcode === CopyBackWrData || mshrTask_s1.opcode === SnpRespData || mshrTask_s1.opcode === SnpRespDataFwded || mshrTask_s1.opcode === CompData),
+        mshrTask_s1.opcode === GrantData || mshrTask_s1.opcode === AccessAckData
+    )
     mayReadDS_a_s1_dup := mayReadDS_a_s1
 
     val dsReady_s1             = !mayReadDS_s2 && !willWriteDS_s2 && !Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)

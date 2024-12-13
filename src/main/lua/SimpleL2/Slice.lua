@@ -3134,7 +3134,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             env.expect_happen_until(10, function () return chi_txrsp.valid:is(1) and chi_txrsp.ready:is(1) end)
 
             for i = 1, 20 do
-                env.expect_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_grant_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
+                env.expect_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
                 print(env.cycles() .. " do grant_s2 retry " .. i)
                 env.posedge()
             end
@@ -3142,7 +3142,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             tl_d.ready:set(1)
             sourceD.io_task_s2_ready:set_release(); sourceD.io_data_s2_ready:set_release(); sourceD._skidBuffer_io_enq_ready:set_release(); sourceD.skidBuffer.io_enq_ready_0:set_release()
             env.posedge()
-            env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_grant_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
+            env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
             
             env.posedge(100)
             tl_e:grantack(0)
@@ -3162,7 +3162,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             env.expect_happen_until(10, function () return chi_txrsp.valid:is(1) and chi_txrsp.ready:is(1) end)
 
             for i = 1, 20 do
-                env.expect_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_accessack_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
+                env.expect_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
                 print(env.cycles() .. " do accessack_s2 retry " .. i)
                 env.posedge()
             end
@@ -3170,7 +3170,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             tl_d.ready:set(1)
             sourceD.io_task_s2_ready:set_release(); sourceD.io_data_s2_ready:set_release()
             env.posedge()
-            env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_grant_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
+            env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
             
             env.posedge(100)
         end

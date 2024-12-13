@@ -25,7 +25,6 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val s_sprobe     = Bool() // probe upwards, cause by Snoop
     val s_grant      = Bool() // response grant upwards
     val s_accessack  = Bool()
-    val s_hintack    = Bool() // send prefetch response
     val s_cbwrdata   = Bool()
     val s_snpresp    = Bool() // resposne SnpResp downwards
     val s_compdat    = Bool() // send CompData for DCT
@@ -37,8 +36,7 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val s_pcrdreturn = Bool() // send PCrdReturn when the correponding txreq transaction has been canceled.
 
     // w: wait
-    val w_grant_sent      = Bool()
-    val w_accessack_sent  = Bool()
+    val w_refill_sent     = Bool()
     val w_cbwrdata_sent   = Bool()
     val w_snpresp_sent    = Bool()
     val w_compdat_sent    = Bool()
@@ -55,6 +53,9 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val w_comp            = Bool() // comp for read transaction
     val w_evict_comp      = Bool() // comp for evict transaction
     val w_replResp        = Bool()
+
+    // For prefetch
+    val s_hintack_opt = if (enablePrefetch) Some(Bool()) else None // send prefetch response
 
     // Seperate Data and Response from Home
     // Response from Home, Data from Subordinate
@@ -123,22 +124,20 @@ class MshrResps()(implicit p: Parameters) extends L2Bundle {
 }
 
 class MshrRetryStage2()(implicit p: Parameters) extends L2Bundle {
-    val isRetry_s2   = Bool()
-    val grant_s2     = Bool() // GrantData
-    val accessack_s2 = Bool() // AccessAckData
-    val cbwrdata_s2  = Bool() // CopyBackWrData
-    val snpresp_s2   = Bool() // SnpRespData
+    val isRetry_s2  = Bool()
+    val refill_s2   = Bool() // GrantData + AccessAckData
+    val cbwrdata_s2 = Bool() // CopyBackWrData
+    val snpresp_s2  = Bool() // SnpRespData
 
     val compdat_opt_s2   = if (supportDCT) Some(Bool()) else None         // CompData for DCT
     val ncbwrdata_opt_s2 = if (enableBypassAtomic) Some(Bool()) else None // NonCopyBackWrData for Atomic transaction
 }
 
 class MshrRetryStage4()(implicit p: Parameters) extends L2Bundle {
-    val isRetry_s4   = Bool()
-    val grant_s4     = Bool() // GrantData
-    val accessack_s4 = Bool() // AccessAckData
-    val cbwrdata_s4  = Bool() // CopyBackWrData
-    val snpresp_s4   = Bool() // SnpResp / SnpRespData
+    val isRetry_s4  = Bool()
+    val refill_s4   = Bool() // GrantData + AccessAckData
+    val cbwrdata_s4 = Bool() // CopyBackWrData
+    val snpresp_s4  = Bool() // SnpResp / SnpRespData
 
     val compdat_opt_s4 = if (supportDCT) Some(Bool()) else None // CompData for DCT
 }
@@ -218,7 +217,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val reqIdx        = OHToUInt(reqClientOH)
     val reqIsGet      = req.opcode === Get
     val reqIsAcquire  = req.opcode === AcquireBlock || req.opcode === AcquirePerm
-    val reqIsPrefetch = req.opcode === Hint
+    val reqIsPrefetch = req.opcode === Hint && req.param === 0.U && enablePrefetch.B
     val reqIsAtomic   = (req.opcode === ArithmeticData || req.opcode === LogicalData) && enableBypassAtomic.B
     val reqNeedT      = needT(req.opcode, req.param)
     val reqNeedB      = needB(req.opcode, req.param)
@@ -429,8 +428,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         state.s_pcrdreturn := state.s_pcrdreturn || s_pcrdreturn
 
         // TODO: Request retry for Atomic transaction
-        val s_atomic = opcode(5, 3) === "b101".U /* AtomicStore */ || opcode(5, 3) === "b110".U /* AtomicLoad */ || opcode === AtomicSwap
-        state.s_atomic_opt.foreach(_ := state.s_atomic_opt.get || s_atomic)
+        if (enableBypassAtomic) {
+            val s_atomic = opcode(5, 3) === "b101".U /* AtomicStore */ || opcode(5, 3) === "b110".U /* AtomicLoad */ || opcode === AtomicSwap
+            state.s_atomic_opt.get := state.s_atomic_opt.get || s_atomic
+        }
 
         val _lastReqState = WireInit(0.U.asTypeOf(new LastReqState))
         _lastReqState.read       := s_read
@@ -536,7 +537,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val needTempDsData      = needRefillData || needProbeAckData || reqIsAtomic
     val mpGrant             = !state.s_grant && !state.w_grantack
     val mpAccessAck         = !state.s_accessack
-    val mpHintAck           = !state.s_hintack                                           // send HintAck for prefetch
+    val mpHintAck           = !state.s_hintack_opt.getOrElse(true.B)                     // send HintAck for prefetch/cmo
 
     // `mpTask_refill.bits.channel` is not used since the refill task always use the same channel => ChannelD
     mpTask_refill.valid := valid &&
@@ -766,12 +767,16 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         when(mpTask_refill.valid) {
             state.s_grant     := true.B
             state.s_accessack := true.B
-            state.s_hintack   := true.B
+
+            when(reqIsPrefetch) {
+                state.w_refill_sent := true.B // HintAck should not be stalled
+            }
+            state.s_hintack_opt.foreach(_ := true.B)
         }
 
         when(mpTask_wbdata.valid) {
             when(io.tasks.mpTask.bits.opcode === CopyBackWrData) {
-                state.s_cbwrdata := true.B // TODO: Extra signals to indicate whether the cbwrdata is sent and leaves L2Cache.
+                state.s_cbwrdata := true.B
             }
             when(io.tasks.mpTask.bits.opcode === NonCopyBackWrData) {
                 state.s_ncbwrdata_opt.foreach(_ := true.B)
@@ -804,13 +809,9 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     /** mpTask needs to be retried due to insufficent resources  */
     when(io.retryTasks.stage2.fire) {
         when(io.retryTasks.stage2.bits.isRetry_s2) {
-            when(io.retryTasks.stage2.bits.accessack_s2) {
-                state.s_accessack := false.B
-                assert(state.s_accessack, "try to retry an already activated task!")
-                assert(valid, "retry on an invalid mshr!")
-            }
-            when(io.retryTasks.stage2.bits.grant_s2) {
-                state.s_grant := false.B
+            when(io.retryTasks.stage2.bits.refill_s2) {
+                state.s_grant     := !reqIsAcquire
+                state.s_accessack := !reqIsGet
                 assert(state.s_grant, "try to retry an already activated task!")
                 assert(valid, "retry on an invalid mshr!")
             }
@@ -835,13 +836,9 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                 assert(valid, "retry on an invalid mshr!")
             }
         }.otherwise {
-            when(io.retryTasks.stage2.bits.accessack_s2) {
-                state.w_accessack_sent := true.B
-                assert(!state.w_accessack_sent)
-            }
-            when(io.retryTasks.stage2.bits.grant_s2) {
-                state.w_grant_sent := true.B
-                assert(!state.w_grant_sent)
+            when(io.retryTasks.stage2.bits.refill_s2) {
+                state.w_refill_sent := true.B
+                assert(!state.w_refill_sent)
             }
             when(io.retryTasks.stage2.bits.cbwrdata_s2) {
                 state.w_cbwrdata_sent := true.B
@@ -863,14 +860,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     }
     when(io.retryTasks.stage4.fire) {
         when(io.retryTasks.stage4.bits.isRetry_s4) {
-            when(io.retryTasks.stage4.bits.grant_s4) {
-                state.s_grant := false.B
+            when(io.retryTasks.stage4.bits.refill_s4) {
+                state.s_grant     := !reqIsAcquire
+                state.s_accessack := !reqIsGet
                 assert(state.s_grant, "try to retry an already activated task!")
-                assert(valid, "retry on an invalid mshr!")
-            }
-            when(io.retryTasks.stage4.bits.accessack_s4) {
-                state.s_accessack := false.B
-                assert(state.s_accessack, "try to retry an already activated task!")
                 assert(valid, "retry on an invalid mshr!")
             }
             when(io.retryTasks.stage4.bits.cbwrdata_s4) {
@@ -889,13 +882,9 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                 assert(valid, "retry on an invalid mshr!")
             }
         }.otherwise {
-            when(io.retryTasks.stage4.bits.accessack_s4) {
-                state.w_accessack_sent := true.B
-                assert(!state.w_accessack_sent)
-            }
-            when(io.retryTasks.stage4.bits.grant_s4) {
-                state.w_grant_sent := true.B
-                assert(!state.w_grant_sent)
+            when(io.retryTasks.stage4.bits.refill_s4) {
+                state.w_refill_sent := true.B
+                assert(!state.w_refill_sent)
             }
             when(io.retryTasks.stage4.bits.cbwrdata_s4) {
                 state.w_cbwrdata_sent := true.B
@@ -1529,18 +1518,19 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val wbNotSent        = !state.s_wb
     val getValidReplResp = io.replResp_s3.fire && !io.replResp_s3.bits.retry && valid
     val waitProbeAck     = !state.w_rprobeack || !state.w_aprobeack || !state.w_sprobeack
+    val waitRefill       = !state.s_hintack_opt.getOrElse(true.B) || !state.s_grant || !state.w_refill_sent || !state.w_grantack || !state.s_accessack
     io.status.valid     := valid
     io.status.willFree  := willFree
     io.status.set       := req.set
     io.status.reqTag    := req.tag
     io.status.metaTag   := dirResp.meta.tag
-    io.status.needsRepl := evictNotSent || wbNotSent // Used by MissHandler to guide the ProbeAck/ProbeAckData response to the match the correct MSHR
+    io.status.needsRepl := evictNotSent || wbNotSent                                                                              // Used by MissHandler to guide the ProbeAck/ProbeAckData response to the match the correct MSHR
     io.status.wayOH     := dirResp.wayOH
-    io.status.dirHit    := dirResp.hit               // Used by Directory to occupy a particular way.
+    io.status.dirHit    := dirResp.hit                                                                                            // Used by Directory to occupy a particular way.
     io.status.state     := meta.state
-    io.status.opcode    := req.opcode                // for prefetch
-    io.status.param     := req.param                 // for prefetch
-    io.status.lockWay := !dirResp.hit && meta.isInvalid && !dirResp.needsRepl || !dirResp.hit && state.w_replResp && (!state.s_grant || !state.w_grant_sent || !state.w_grantack || !state.s_accessack || !state.w_accessack_sent || !state.s_hintack) // Lock the CacheLine way that will be used in later Evict or WriteBackFull
+    io.status.opcode    := req.opcode                                                                                             // for prefetch
+    io.status.param     := req.param                                                                                              // for prefetch
+    io.status.lockWay   := !dirResp.hit && meta.isInvalid && !dirResp.needsRepl || !dirResp.hit && state.w_replResp && waitRefill // Lock the CacheLine way that will be used in later Evict or WriteBackFull
 
     io.status.w_replResp   := state.w_replResp
     io.status.w_rprobeack  := state.w_rprobeack
@@ -1566,7 +1556,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
 
     val gotReplProbeAck  = state.s_rprobe && state.w_rprobeack
     val gotWbResp        = state.w_compdbid && state.w_evict_comp
-    val hasPendingRefill = !state.s_grant || !state.w_grant_sent || !state.s_accessack || !state.w_accessack_sent || !state.s_hintack || !state.w_grantack
+    val hasPendingRefill = !state.s_grant || !state.w_refill_sent || !state.s_accessack || !state.s_hintack_opt.getOrElse(true.B) || !state.w_grantack
     val gotCompResp      = state.w_comp && state.w_compdat_first && state.w_datasepresp_first
     val isAcquireHit     = dirResp.hit && req.isChannelA
     io.status.reqAllowSnoop := {

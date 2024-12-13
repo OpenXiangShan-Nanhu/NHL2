@@ -133,7 +133,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         txdat_s2.bits.homeNID  := task_s2.srcID
         txdat_s2.bits.dbID     := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
         txdat_s2.bits.resp     := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        txdat_s2.bits.be       := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
+        txdat_s2.bits.be       := Mux(task_s2.opcode === NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
         txdat_s2.bits.opcode   := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
         txdat_s2.bits.fwdState := task_s2.fwdState_opt.getOrElse(DontCare)
     } else {
@@ -144,7 +144,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         io.txdat_s2.bits.homeNID  := task_s2.srcID
         io.txdat_s2.bits.dbID     := Mux(isCompData_s2, task_s2.dbID, Mux(task_s2.snpHitReq, task_s2.snpHitMshrId, task_s2.mshrId))
         io.txdat_s2.bits.resp     := Mux(task_s2.snpHitReq, Mux(task_s2.snpGotDirty, Mux(isSnpToN_s2, Resp.I_PD, Resp.SC_PD), Mux(isSnpToN_s2, Resp.I, Resp.SC)), task_s2.resp)
-        io.txdat_s2.bits.be       := Mux(task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
+        io.txdat_s2.bits.be       := Mux(task_s2.opcode === NonCopyBackWrData, task_s2.maskOpt.getOrElse(Fill(beatBytes, 1.U)), Fill(beatBytes, 1.U))
         io.txdat_s2.bits.opcode   := Mux(task_s2.snpHitReq, SnpRespData, task_s2.opcode)
         io.txdat_s2.bits.fwdState := task_s2.fwdState_opt.getOrElse(DontCare)
     }
@@ -159,28 +159,26 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val hasRetry_s2     = io.retryTasks.stage2.valid && io.retryTasks.stage2.bits.isRetry_s2
     val retryTasks_s2   = WireInit(0.U.asTypeOf(chiselTypeOf(io.retryTasks)))
     if (enableDataECC) {
-        retryTasks_s2.mshrId_s2                := task_s2.mshrId
-        retryTasks_s2.stage2.valid             := (isMshrSourceD_s2 || isMshrTXDAT_s2 || dropMshrTask_s2) && valid_s2
-        retryTasks_s2.stage2.bits.isRetry_s2   := sourcedStall_s2 || txdatStall_s2 || dropMshrTask_s2
-        retryTasks_s2.stage2.bits.grant_s2     := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData)
-        retryTasks_s2.stage2.bits.accessack_s2 := !task_s2.isCHIOpcode && (task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData)
-        retryTasks_s2.stage2.bits.cbwrdata_s2  := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
-        retryTasks_s2.stage2.bits.snpresp_s2   := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
+        retryTasks_s2.mshrId_s2               := task_s2.mshrId
+        retryTasks_s2.stage2.valid            := (isMshrSourceD_s2 || isMshrTXDAT_s2 || dropMshrTask_s2) && valid_s2
+        retryTasks_s2.stage2.bits.isRetry_s2  := sourcedStall_s2 || txdatStall_s2 || dropMshrTask_s2
+        retryTasks_s2.stage2.bits.refill_s2   := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData || task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData)
+        retryTasks_s2.stage2.bits.cbwrdata_s2 := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
+        retryTasks_s2.stage2.bits.snpresp_s2  := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
         retryTasks_s2.stage2.bits.compdat_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === CompData))
         retryTasks_s2.stage2.bits.ncbwrdata_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === NonCopyBackWrData))
 
         assert(
-            !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && retryTasks_s2.stage2.valid && retryTasks_s2.stage2.bits.isRetry_s2),
-            "HintAck should not trigger retryTasks_s2"
+            !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && task_s2.param === 0.U && retryTasks_s2.stage2.valid && retryTasks_s2.stage2.bits.isRetry_s2),
+            "HintAck for prefetch(param == 0) should not trigger retryTasks_s2"
         )
     } else {
-        io.retryTasks.mshrId_s2                := task_s2.mshrId
-        io.retryTasks.stage2.valid             := (isMshrSourceD_s2 || isMshrTXDAT_s2 || dropMshrTask_s2) && valid_s2
-        io.retryTasks.stage2.bits.isRetry_s2   := sourcedStall_s2 || txdatStall_s2 || dropMshrTask_s2
-        io.retryTasks.stage2.bits.grant_s2     := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData)
-        io.retryTasks.stage2.bits.accessack_s2 := !task_s2.isCHIOpcode && (task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData)
-        io.retryTasks.stage2.bits.cbwrdata_s2  := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
-        io.retryTasks.stage2.bits.snpresp_s2   := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
+        io.retryTasks.mshrId_s2               := task_s2.mshrId
+        io.retryTasks.stage2.valid            := (isMshrSourceD_s2 || isMshrTXDAT_s2 || dropMshrTask_s2) && valid_s2
+        io.retryTasks.stage2.bits.isRetry_s2  := sourcedStall_s2 || txdatStall_s2 || dropMshrTask_s2
+        io.retryTasks.stage2.bits.refill_s2   := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData || task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData)
+        io.retryTasks.stage2.bits.cbwrdata_s2 := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
+        io.retryTasks.stage2.bits.snpresp_s2  := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
         io.retryTasks.stage2.bits.compdat_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === CompData))
         io.retryTasks.stage2.bits.ncbwrdata_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === NonCopyBackWrData))
 
@@ -190,8 +188,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         }
 
         assert(
-            !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && io.retryTasks.stage2.valid && io.retryTasks.stage2.bits.isRetry_s2),
-            "HintAck should not trigger io.retryTasks"
+            !(!task_s2.isCHIOpcode && task_s2.opcode === HintAck && task_s2.param === 0.U && io.retryTasks.stage2.valid && io.retryTasks.stage2.bits.isRetry_s2),
+            "HintAck for prefetch(param == 0) should not trigger io.retryTasks"
         )
     }
 
@@ -272,8 +270,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isAcquireBlock_s3 = task_s3.opcode === AcquireBlock && task_s3.isChannelA
     val isAcquirePerm_s3  = task_s3.opcode === AcquirePerm && task_s3.isChannelA
     val isAcquire_s3      = isAcquireBlock_s3 || isAcquirePerm_s3
-    val isPrefetch_s3     = task_s3.opcode === Hint && task_s3.isChannelA
-    val isAtomic_s3       = enableBypassAtomic.B && task_s3.isChannelA && (task_s3.opcode === ArithmeticData || task_s3.opcode === LogicalData)
+    val isPrefetch_s3     = task_s3.opcode === Hint && task_s3.param === 0.U && task_s3.isChannelA && enablePrefetch.B
+    val isAtomic_s3       = (task_s3.opcode === ArithmeticData || task_s3.opcode === LogicalData) && task_s3.isChannelA && enableBypassAtomic.B
     val cacheAlias_s3     = isAcquire_s3 && hit_s3 && isReqClient_s3 && meta_s3.aliasOpt.getOrElse(0.U) =/= task_s3.aliasOpt.getOrElse(0.U)
     val isSnpToN_s3       = CHIOpcodeSNP.isSnpToN(task_s3.opcode) && task_s3.isChannelB
     val isSnpToB_s3       = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && task_s3.isChannelB
@@ -329,19 +327,13 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         mshrAllocStates.s_repl     := dirResp_s3.hit || !dirResp_s3.hit && dirResp_s3.meta.isInvalid && !dirResp_s3.needsRepl
         mshrAllocStates.w_replResp := dirResp_s3.hit || !dirResp_s3.hit && dirResp_s3.meta.isInvalid && !dirResp_s3.needsRepl
 
-        when(isGet_s3) {
-            mshrAllocStates.s_accessack      := false.B
-            mshrAllocStates.w_accessack_sent := false.B
-        }
+        mshrAllocStates.s_accessack   := !isGet_s3
+        mshrAllocStates.s_grant       := !isAcquire_s3
+        mshrAllocStates.w_grantack    := !isAcquire_s3
+        mshrAllocStates.w_refill_sent := false.B
 
-        when(isAcquire_s3) {
-            mshrAllocStates.s_grant      := false.B
-            mshrAllocStates.w_grant_sent := false.B
-            mshrAllocStates.w_grantack   := false.B
-        }
-
-        when(isPrefetch_s3) {
-            mshrAllocStates.s_hintack := false.B
+        if (enablePrefetch) {
+            mshrAllocStates.s_hintack_opt.get := !isPrefetch_s3
         }
 
         when(needReadDownward_a_s3) {
@@ -379,20 +371,22 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         // }
     }
 
-    when(enableBypassAtomic.B && task_s3.isChannelA && isAtomic_s3) {
-        mshrAllocStates.s_atomic_opt.get         := false.B
-        mshrAllocStates.w_dbidresp_opt.get       := false.B
-        mshrAllocStates.s_ncbwrdata_opt.get      := false.B
-        mshrAllocStates.w_ncbwrdata_sent_opt.get := false.B
-        mshrAllocStates.w_compdat                := false.B
+    if (enableBypassAtomic) {
+        when(task_s3.isChannelA && isAtomic_s3) {
+            mshrAllocStates.s_atomic_opt.get         := false.B
+            mshrAllocStates.w_dbidresp_opt.get       := false.B
+            mshrAllocStates.s_ncbwrdata_opt.get      := false.B
+            mshrAllocStates.w_ncbwrdata_sent_opt.get := false.B
+            mshrAllocStates.w_compdat                := false.B
 
-        mshrAllocStates.s_accessack      := false.B
-        mshrAllocStates.w_accessack_sent := false.B
+            mshrAllocStates.s_accessack   := false.B
+            mshrAllocStates.w_refill_sent := false.B
 
-        when(needProbeOnHit_a_s3) {
-            mshrAllocStates.s_aprobe          := false.B
-            mshrAllocStates.w_aprobeack       := false.B
-            mshrAllocStates.w_aprobeack_first := false.B
+            when(needProbeOnHit_a_s3) {
+                mshrAllocStates.s_aprobe          := false.B
+                mshrAllocStates.w_aprobeack       := false.B
+                mshrAllocStates.w_aprobeack_first := false.B
+            }
         }
     }
 
@@ -892,13 +886,12 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.txrsp_s4.bits.fwdState := task_s4.fwdState_opt.getOrElse(DontCare)
 
     val txrspStall_s4 = io.txrsp_s4.valid && !io.txrsp_s4.ready
-    io.retryTasks.mshrId_s4                := task_s4.mshrId
-    io.retryTasks.stage4.valid             := valid_snpresp_mp_s4 || valid_snpdata_mp_s4 || valid_cbwrdata_mp_s4 || valid_compdata_mp_s4 || valid_refill_mp_s4
-    io.retryTasks.stage4.bits.isRetry_s4   := txrspStall_s4 || snpRetry_s4 || copyBackRetry_s4 || refillRetry_s4 || compDataRetry_s4
-    io.retryTasks.stage4.bits.grant_s4     := valid_refill_mp_s4 && (task_s4.opcode === GrantData || task_s4.opcode === Grant)
-    io.retryTasks.stage4.bits.accessack_s4 := valid_refill_mp_s4 && (task_s4.opcode === AccessAckData)
-    io.retryTasks.stage4.bits.cbwrdata_s4  := valid_cbwrdata_mp_s4
-    io.retryTasks.stage4.bits.snpresp_s4   := valid_snpresp_mp_s4 || valid_snpdata_mp_s4
+    io.retryTasks.mshrId_s4               := task_s4.mshrId
+    io.retryTasks.stage4.valid            := valid_snpresp_mp_s4 || valid_snpdata_mp_s4 || valid_cbwrdata_mp_s4 || valid_compdata_mp_s4 || valid_refill_mp_s4
+    io.retryTasks.stage4.bits.isRetry_s4  := txrspStall_s4 || snpRetry_s4 || copyBackRetry_s4 || refillRetry_s4 || compDataRetry_s4
+    io.retryTasks.stage4.bits.refill_s4   := valid_refill_mp_s4 && (task_s4.opcode === GrantData || task_s4.opcode === Grant || task_s4.opcode === AccessAckData)
+    io.retryTasks.stage4.bits.cbwrdata_s4 := valid_cbwrdata_mp_s4
+    io.retryTasks.stage4.bits.snpresp_s4  := valid_snpresp_mp_s4 || valid_snpdata_mp_s4
     io.retryTasks.stage4.bits.compdat_opt_s4.foreach(_ := valid_compdata_mp_s4)
 
     val refillNeedData_s4 = valid_refill_s4 && !task_s4.isCHIOpcode && needData(respOpcode_s4) || valid_refill_mp_s4 && RegEnable(refillNeedData_mp_s3, fire_s3)

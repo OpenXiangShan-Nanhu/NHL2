@@ -86,7 +86,10 @@ class SinkA()(implicit p: Parameters) extends L2Module {
 
         io.a.ready := io.task.ready && Mux(isAtomicReq, amoDataBufReady, true.B)
 
-        assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
+        when(!isAtomicReq) {
+            assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
+        }
+
         LeakChecker(io.a.valid, io.a.fire, Some("SinkA_io_a_valid"), maxCount = deadlockThreshold)
     }
 

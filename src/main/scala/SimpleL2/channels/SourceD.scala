@@ -10,8 +10,6 @@ import SimpleL2.Bundles._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.tilelink.TLMessages._
 
-// TODO: ReleaseAck on SourceB ?
-
 class BufferStatusSourceD(implicit p: Parameters) extends L2Bundle {
     // SkidBuffer status for RequestArbiter to block the same address SinkA request.
     val valid = Bool()
@@ -72,7 +70,8 @@ class SourceD()(implicit p: Parameters) extends L2Module {
     io.data_s2.ready   := skidBuffer.io.enq.ready && needData(task.opcode) && grantMapReady
     io.data_s7s8.ready := skidBuffer.io.enq.ready && needData(task.opcode) && grantMapReady && !io.data_s2.valid
 
-    nonDataRespQueue.io.enq.valid          := taskFire && !needData(task.opcode) && task.opcode =/= HintAck
+    val isPrefetchHintAck = task.opcode === HintAck && task.param === 0.U && enablePrefetch.B
+    nonDataRespQueue.io.enq.valid          := taskFire && !needData(task.opcode) && !isPrefetchHintAck
     nonDataRespQueue.io.enq.bits.task      := task
     nonDataRespQueue.io.enq.bits.task.sink := Mux(task.isMshrTask, task.sink, sinkId)
 
@@ -178,10 +177,10 @@ class SourceD()(implicit p: Parameters) extends L2Module {
         val pftQueueLen  = 10
         val pftRespQueue = Module(new Queue(pftRespEntry, entries = pftQueueLen, flow = true))
 
-        pftRespQueue.io.enq.valid         := taskFire && task.opcode === HintAck // && io.d_task.bits.task.fromL2pft.getOrElse(false.B)
+        pftRespQueue.io.enq.valid         := taskFire && isPrefetchHintAck // && io.d_task.bits.task.fromL2pft.getOrElse(false.B)
         pftRespQueue.io.enq.bits.tag      := task.tag
         pftRespQueue.io.enq.bits.set      := task.set
-        pftRespQueue.io.enq.bits.pfSource := DontCare                            // TODO: io.d_task.bits.task.reqSource
+        pftRespQueue.io.enq.bits.pfSource := DontCare                      // TODO: io.d_task.bits.task.reqSource
         pftRespQueue.io.enq.bits.source   := task.source
         pftRespQueue.io.enq.bits.vaddr.foreach(_ := task.vaddrOpt.getOrElse(0.U))
 
