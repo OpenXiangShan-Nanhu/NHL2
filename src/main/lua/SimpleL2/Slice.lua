@@ -3800,6 +3800,110 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
         test(MixedState.TD, 0x00)
         test(MixedState.TTD, 0x01)
 
+        local test = function (init_state, init_clientsOH)
+            printf("SnpUnique nested at => %s, clientsOH => %d\n", MixedState(init_state), init_clientsOH)
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, init_state, init_clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(1), 0x02, init_state, init_clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(2), 0x03, init_state, init_clientsOH)
+                write_dir(0x01, utils.uint_to_onehot(3), 0x04, init_state, init_clientsOH)
+            env.negedge()
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead}, {s = 256, e = 256 + 63, v = 0xbeef}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(1), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead1}, {s = 256, e = 256 + 63, v = 0xbeef1}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(2), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead2}, {s = 256, e = 256 + 63, v = 0xbeef2}}, 512))
+                write_ds(0x01, utils.uint_to_onehot(3), utils.bitpat_to_hexstr({{s = 0,   e = 63, v = 0xdead3}, {s = 256, e = 256 + 63, v = 0xbeef3}}, 512))
+
+            -- send_and_resp_request()
+            local source = 4
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoB, source)
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.ReadNotSharedDirty) end)
+                    chi_rxdat:compdat(0, "0xdead", "0xbeef", 5, CHIResp.UC) -- dbID = 5
+                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.txnID:is(5) end)
+                end,
+                function ()
+                    if init_clientsOH ~= 0 then
+                        env.expect_happen_until(20, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
+                        local address = tl_b.bits.address:get()
+                        tl_c:probeack_data(address, TLParam.TtoN, "0xaaaa1", "0xbbbb1", 0)
+                    end
+                end
+            }
+
+            env.expect_happen_until(20, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
+            local snp_address = tonumber(chi_txreq.bits.addr:get())
+            local expect_datas
+            if init_clientsOH == 0 then
+                expect_datas = assert(({
+                    [to_address(0x01, 0x01)] = {"0xdead", "0xbeef"},
+                    [to_address(0x01, 0x02)] = {"0xdead1", "0xbeef1"},
+                    [to_address(0x01, 0x03)] = {"0xdead2", "0xbeef2"},
+                    [to_address(0x01, 0x04)] = {"0xdead3", "0xbeef3"},
+                })[snp_address])
+            else
+                expect_datas = {"0xaaaa1", "0xbbbb1"}
+            end
+            printf("\tSnpUnique nested at %s, snp_address is 0x%x\n", MixedState(init_state), snp_address)
+
+            -- When MSHR is waiting for CompDBIDResp, a snoop is comming
+            local src_id = 4
+            local ret2src = 0
+            local txn_id = 0
+            local fwd_nid = 1
+            local fwd_txn_id = 2
+            local do_not_go_to_sd = 0
+            chi_rxsnp:send_fwd_request(snp_address, OpcodeSNP.SnpUniqueFwd, src_id, txn_id, ret2src, fwd_nid, fwd_txn_id, do_not_go_to_sd)
+
+            env.expect_happen_until(10, function () return mpReq_s2:fire() and mpReq_s2.bits.channel:is(0x02) and mpReq_s2.bits.snpHitWriteBack:is(1) end)
+
+            verilua "appendTasks" {
+                function ()
+                    if init_clientsOH ~= 0 then
+                        env.expect_not_happen_until(10, function () return tl_b:fire() end)
+                    end
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) end)
+                    chi_txrsp.bits.resp:expect(CHIResp.I); chi_txrsp.bits.tgtID:expect(src_id); chi_txrsp.bits.txnID:expect(txn_id); chi_txrsp.bits.fwdState:expect(CHIResp.UC_PD)
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x00) and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.data:is_hex_str(expect_datas[1]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.UC_PD); chi_txdat.bits.tgtID:expect(fwd_nid); chi_txdat.bits.txnID:expect(fwd_txn_id); chi_txdat.bits.dbID:expect(txn_id)
+                    env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.dataID:is(0x02) and chi_txdat.bits.opcode:is(OpcodeDAT.CompData) and chi_txdat.bits.data:is_hex_str(expect_datas[2]) end)
+                    chi_txdat.bits.resp:expect(CHIResp.UC_PD)
+                end,
+                function ()
+                    env.expect_happen_until(20, function () return mshrs[0].io_nested_snoop_toN:is(1) end)
+                    env.negedge()
+                    env.expect_not_happen_until(10, function () return mshrs[0].io_nested_snoop_toN:is(1) end)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return mshrs[1].io_status_valid:is(1) end)
+                end
+            }
+
+            env.negedge(50)
+                chi_rxrsp:comp_dbidresp(0, 3)
+            
+            verilua "appendTasks" {
+                function ()
+                    env.expect_happen_until(10, function () return reqArb.io_tempDsRead_s1_valid:is(1) end)
+                    env.expect_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            local dataID, opcode, resp = chi_txdat.bits.dataID, chi_txdat.bits.opcode, chi_txdat.bits.resp
+            env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x00) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) end)
+            env.expect_happen_until(10, function () return chi_txdat:fire() and dataID:is(0x02) and opcode:is(OpcodeDAT.CopyBackWrData) and resp:is(CHIResp.I) end)
+            env.negedge()
+            tl_e:grantack(0)
+
+            env.negedge(100)
+        end
+        test(MixedState.TD, 0x00)
+        test(MixedState.TTD, 0x01)
+
         env.negedge(100)
     end
 }
