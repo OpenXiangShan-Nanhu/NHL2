@@ -308,7 +308,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val needProbe_snpToB_s3   = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
     val needProbe_snpToN_s3   = (CHIOpcodeSNP.isSnpUniqueX(task_s3.opcode) || CHIOpcodeSNP.isSnpMakeInvalidX(task_s3.opcode) || task_s3.opcode === SnpCleanInvalid) && dirResp_s3.hit && meta_s3.clientsOH.orR
     val needProbe_snpClean_s3 = CHIOpcodeSNP.isSnpCleanShared(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
-    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3 || needProbe_snpClean_s3)
+    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3 || needProbe_snpClean_s3) && !task_s3.snpHitWriteBack // snpHitWriteBack does not require to probe since the probe is done by the mshr which trigger the writeback
     val needDCT_s3            = isFwdSnoop_s3 && hit_s3 && supportDCT.B
 
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
@@ -449,7 +449,6 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     io.mshrAlloc_s3.bits.req             := task_s3
     io.mshrAlloc_s3.bits.req.isAliasTask := cacheAlias_s3
     io.mshrAlloc_s3.bits.realloc         := mshrRealloc_s3
-    io.mshrAlloc_s3.bits.snpGotDirty     := task_s3.snpGotDirty
     assert(!(task_s3.isLowPowerTaskOpt.getOrElse(false.B) && io.mshrAlloc_s3.valid && !io.mshrAlloc_s3.ready), "low power task should always valid to alloc mshr!")
 
     val snpReplay_dup_s3 = WireInit(false.B)

@@ -259,6 +259,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val nestedRelease       = RegInit(false.B)
     val probeGotDirty       = RegInit(false.B)
     val snpGotDirty         = RegInit(false.B)                                                                                                // for reallocation
+    val snpHitWriteBack     = RegInit(false.B)
     val probeAckParams      = RegInit(VecInit(Seq.fill(nrClients)(0.U.asTypeOf(chiselTypeOf(io.resps.sinkc.bits.param)))))
     val probeAckClients     = RegInit(0.U(nrClients.W))
     val probeFinish         = WireInit(false.B)
@@ -293,6 +294,9 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         req     := allocReq
         dirResp := allocDirResp
         state   := allocState
+
+        snpGotDirty := allocReq.snpGotDirty
+        snpHitWriteBack := allocReq.snpHitWriteBack
 
         isAcquireProbe := !allocState.s_aprobe
 
@@ -330,7 +334,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         reallocTxnID    := io.alloc_s3.bits.req.txnID
         reallocOpcode   := io.alloc_s3.bits.req.opcode
         reallocRetToSrc := io.alloc_s3.bits.req.retToSrc
-        snpGotDirty     := io.alloc_s3.bits.snpGotDirty
+        snpGotDirty     := io.alloc_s3.bits.req.snpGotDirty
 
         state.s_snpresp      := allocState.s_snpresp
         state.w_snpresp_sent := allocState.w_snpresp_sent
@@ -709,8 +713,9 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val isSnpMakeInvalidX = CHIOpcodeSNP.isSnpMakeInvalidX(snpOpcode)
     val isSnpToB          = CHIOpcodeSNP.isSnpToB(snpOpcode)
     val isSnpToN          = CHIOpcodeSNP.isSnpToN(snpOpcode)
+    val isSnpUniqueX      = CHIOpcodeSNP.isSnpUniqueX(snpOpcode)
     val isSnpClean        = CHIOpcodeSNP.isSnpCleanShared(snpOpcode)
-    val snprespPassDirty  = Mux(isSnpFwd && CHIOpcodeSNP.isSnpUniqueX(snpOpcode), false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || isRealloc && snpGotDirty)
+    val snprespPassDirty  = Mux(isSnpFwd && isSnpUniqueX, false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || (isRealloc || isSnpFwd) && snpGotDirty) // snpGotDirty is TRUE when fwd snoop nested writeback mshr
     val snprespFinalDirty = isSnpOnceX && meta.isDirty
     val snprespFinalState = Mux(isSnpOnceX || isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID))
     val snprespNeedData = Mux(
