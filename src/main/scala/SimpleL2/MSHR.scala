@@ -689,7 +689,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         CHICohState.SC,
         Mux(compdatOpcode === SnpUniqueFwd, Mux(meta.isDirty || probeGotDirty, CHICohState.UD, CHICohState.UC), CHICohState.I)
     )
-    val fwdPassDirty = req.chiOpcode === SnpUniqueFwd && (meta.isDirty || probeGotDirty)
+    val fwdPassDirty = req.chiOpcode === SnpUniqueFwd && (meta.isDirty || probeGotDirty || snpGotDirty)
     mpTask_compdat.valid            := !state.s_compdat && state.w_sprobeack && tempDsWriteFinish_dup && supportDCT.B
     mpTask_compdat.bits.isCHIOpcode := true.B
     mpTask_compdat.bits.opcode      := CHIOpcodeDAT.CompData

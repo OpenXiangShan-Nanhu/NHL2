@@ -3800,8 +3800,8 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
         test(MixedState.TD, 0x00)
         test(MixedState.TTD, 0x01)
 
-        local test = function (init_state, init_clientsOH)
-            printf("SnpUnique nested at => %s, clientsOH => %d\n", MixedState(init_state), init_clientsOH)
+        local test = function (init_state, init_clientsOH, probeack_data)
+            printf("SnpUniqueFwd nested at => %s, clientsOH => %d, probeack_data => %s\n", MixedState(init_state), init_clientsOH, tostring(probeack_data))
             env.negedge()
                 write_dir(0x01, utils.uint_to_onehot(0), 0x01, init_state, init_clientsOH)
                 write_dir(0x01, utils.uint_to_onehot(1), 0x02, init_state, init_clientsOH)
@@ -3827,25 +3827,26 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
                     if init_clientsOH ~= 0 then
                         env.expect_happen_until(20, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
                         local address = tl_b.bits.address:get()
-                        tl_c:probeack_data(address, TLParam.TtoN, "0xaaaa1", "0xbbbb1", 0)
+                        if probeack_data then
+                            tl_c:probeack_data(address, TLParam.TtoN, "0xaaaa1", "0xbbbb1", 0)
+                        else
+                            tl_c:probeack(address, TLParam.TtoN, 0)
+                        end
                     end
                 end
             }
 
             env.expect_happen_until(20, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
             local snp_address = tonumber(chi_txreq.bits.addr:get())
-            local expect_datas
-            if init_clientsOH == 0 then
-                expect_datas = assert(({
+            local expect_datas = assert(({
                     [to_address(0x01, 0x01)] = {"0xdead", "0xbeef"},
                     [to_address(0x01, 0x02)] = {"0xdead1", "0xbeef1"},
                     [to_address(0x01, 0x03)] = {"0xdead2", "0xbeef2"},
                     [to_address(0x01, 0x04)] = {"0xdead3", "0xbeef3"},
                 })[snp_address])
-            else
-                expect_datas = {"0xaaaa1", "0xbbbb1"}
-            end
-            printf("\tSnpUnique nested at %s, snp_address is 0x%x\n", MixedState(init_state), snp_address)
+            expect_datas = probeack_data and {"0xaaaa1", "0xbbbb1"} or expect_datas
+
+            printf("\tSnpUniqueFwd nested at %s, snp_address is 0x%x\n", MixedState(init_state), snp_address)
 
             -- When MSHR is waiting for CompDBIDResp, a snoop is comming
             local src_id = 4
@@ -3901,8 +3902,9 @@ local test_snoop_nested_writebackfull = env.register_test_case "test_snoop_neste
 
             env.negedge(100)
         end
-        test(MixedState.TD, 0x00)
-        test(MixedState.TTD, 0x01)
+        test(MixedState.TD, 0x00, false)
+        test(MixedState.TTD, 0x01, true)
+        test(MixedState.TTC, 0x01, true)
 
         env.negedge(100)
     end
