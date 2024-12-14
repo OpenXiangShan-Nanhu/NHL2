@@ -214,6 +214,19 @@ local function build_channel(tl_prefix, chi_prefix)
             this.valid:set(0)
         env.negedge()
     end
+
+    tl_a.cmo = function (this, addr, param, source)
+        assert(param ~= 0)
+        env.negedge()
+            this.valid:set(1)
+            this.bits.address:set(addr, true)
+            this.bits.opcode:set(TLOpcodeA.Hint)
+            this.bits.param:set(param)
+            this.bits.source:set(source)
+        env.negedge()
+            this.valid:set(0)
+        env.negedge()
+    end
     
     tl_c.release_data = function (this, addr, param, source, data_str_0, data_str_1)
         env.negedge()

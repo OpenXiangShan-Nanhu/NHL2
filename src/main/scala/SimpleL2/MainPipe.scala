@@ -162,7 +162,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         retryTasks_s2.mshrId_s2               := task_s2.mshrId
         retryTasks_s2.stage2.valid            := (isMshrSourceD_s2 || isMshrTXDAT_s2 || dropMshrTask_s2) && valid_s2
         retryTasks_s2.stage2.bits.isRetry_s2  := sourcedStall_s2 || txdatStall_s2 || dropMshrTask_s2
-        retryTasks_s2.stage2.bits.refill_s2   := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData || task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData)
+        retryTasks_s2.stage2.bits.refill_s2   := !task_s2.isCHIOpcode && (task_s2.opcode === Grant || task_s2.opcode === GrantData || task_s2.opcode === AccessAck || task_s2.opcode === AccessAckData || task_s2.opcode === HintAck && task_s2.param =/= 0.U)
         retryTasks_s2.stage2.bits.cbwrdata_s2 := task_s2.isCHIOpcode && (task_s2.opcode === CopyBackWrData) // TODO: remove this since CopyBackWrData will be handled in stage 6 or stage 7
         retryTasks_s2.stage2.bits.snpresp_s2  := task_s2.isCHIOpcode && (task_s2.opcode === SnpRespData || task_s2.opcode === SnpRespDataFwded)
         retryTasks_s2.stage2.bits.compdat_opt_s2.foreach(_ := task_s2.isCHIOpcode && (task_s2.opcode === CompData))
@@ -271,6 +271,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isAcquirePerm_s3  = task_s3.opcode === AcquirePerm && task_s3.isChannelA
     val isAcquire_s3      = isAcquireBlock_s3 || isAcquirePerm_s3
     val isPrefetch_s3     = task_s3.opcode === Hint && task_s3.param === 0.U && task_s3.isChannelA && enablePrefetch.B
+    val isCMO_s3          = task_s3.opcode === Hint && task_s3.param =/= 0.U && task_s3.isChannelA && enableBypassCMO.B
     val isAtomic_s3       = (task_s3.opcode === ArithmeticData || task_s3.opcode === LogicalData) && task_s3.isChannelA && enableBypassAtomic.B
     val cacheAlias_s3     = isAcquire_s3 && hit_s3 && isReqClient_s3 && meta_s3.aliasOpt.getOrElse(0.U) =/= task_s3.aliasOpt.getOrElse(0.U)
     val isSnpToN_s3       = CHIOpcodeSNP.isSnpToN(task_s3.opcode) && task_s3.isChannelB
@@ -313,7 +314,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
     val mshrRealloc_s3  = (snpNeedMshr_s3 || isFwdSnoop_s3) && task_s3.snpHitReq && canAllocMshr_s3
-    val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3 || isAtomic_s3) && canAllocMshr_s3
+    val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3 || isAtomic_s3 || isCMO_s3) && canAllocMshr_s3
     val mshrAlloc_b_s3  = ((needProbe_b_s3 && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) || needDCT_s3) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
     val mshrAlloc_c_s3  = false.B                                                                                               // for inclusive cache, Release/ReleaseData always hit
     val mshrAlloc_lp_s3 = task_s3.isLowPowerTaskOpt.getOrElse(false.B) && dirResp_s3.hit
@@ -321,7 +322,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
 
     val mshrAllocStates = WireInit(0.U.asTypeOf(new MshrFsmState))
     mshrAllocStates.elements.foreach(_._2 := true.B)
-    when(task_s3.isChannelA && !isAtomic_s3) {
+    when(task_s3.isChannelA && !isAtomic_s3 && !isCMO_s3) {
 
         /** need to send replTask to [[Directory]] */
         mshrAllocStates.s_repl     := dirResp_s3.hit || !dirResp_s3.hit && dirResp_s3.meta.isInvalid && !dirResp_s3.needsRepl
@@ -387,6 +388,15 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
                 mshrAllocStates.w_aprobeack       := false.B
                 mshrAllocStates.w_aprobeack_first := false.B
             }
+        }
+    }
+
+    if (enableBypassCMO) {
+        when(task_s3.isChannelA && isCMO_s3) {
+            mshrAllocStates.s_cmo_opt.get     := false.B
+            mshrAllocStates.s_hintack_opt.get := false.B
+            mshrAllocStates.w_refill_sent     := false.B
+            mshrAllocStates.w_comp            := false.B
         }
     }
 

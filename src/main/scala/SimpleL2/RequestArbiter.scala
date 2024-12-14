@@ -251,7 +251,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
 
     def snpHitReq(set: UInt, tag: UInt): UInt = {
         val matchVec = VecInit(io.mshrStatus.map { s =>
-            s.valid && s.set === set && s.reqTag === tag && s.reqAllowSnoop
+            s.valid && s.set === set && s.reqTag === tag && s.reqAllowSnoop && !s.isCMOOpt.getOrElse(false.B)
         }).asUInt
         matchVec
     }
@@ -328,7 +328,8 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         assert(!(io.lowPowerStateOpt.get === PowerState.SHUTDOWN && chnlTask_s1.valid), "When powerState is SHUTDOWN, L2Cache cannot accept any channel request")
     }
 
-    chnlTask_s1.ready := io.resetFinish && io.lowPowerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE && !mshrTaskFull_s1 && Mux(!chnlTask_s1.bits.snpHitReq, io.dirRead_s1.ready, true.B)
+    val chnlTaskIsCMO_s1 = chnlTask_s1.bits.isChannelA && chnlTask_s1.bits.opcode === Hint && chnlTask_s1.bits.param =/= 0.U && enableBypassCMO.B // CMO task doesn't need to read directory
+    chnlTask_s1.ready := io.resetFinish && io.lowPowerStateOpt.getOrElse(PowerState.ACTIVE) === PowerState.ACTIVE && !mshrTaskFull_s1 && Mux(!chnlTask_s1.bits.snpHitReq && !chnlTaskIsCMO_s1, io.dirRead_s1.ready, true.B)
     task_s1 := Mux(
         mshrTaskFull_s1,
         mshrTask_s1,

@@ -22,6 +22,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
     io.a    <> DontCare
     io.task <> DontCare
 
+    val isCMOReq        = io.a.bits.opcode === TLMessages.Hint && io.a.bits.param =/= 0.U && enableBypassCMO.B
     val isAtomicReq     = io.a.bits.opcode === TLMessages.ArithmeticData || io.a.bits.opcode === TLMessages.LogicalData
     val amoDataBufReady = if (enableBypassAtomic) io.amoDataBufWrOpt.get.ready else true.B
 
@@ -59,7 +60,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         }
 
         io.a.ready := io.task.ready && Mux(isAtomicReq, amoDataBufReady, true.B)
-        when(!isAtomicReq) {
+        when(!isAtomicReq && !isCMOReq) {
             assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
         }
         LeakChecker(io.a.valid, io.a.fire, Some("SinkA_io_a_valid"), maxCount = deadlockThreshold)
@@ -86,7 +87,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
 
         io.a.ready := io.task.ready && Mux(isAtomicReq, amoDataBufReady, true.B)
 
-        when(!isAtomicReq) {
+        when(!isAtomicReq && !isCMOReq) {
             assert(!(io.a.fire && io.a.bits.size =/= log2Ceil(blockBytes).U), "size:%d", io.a.bits.size)
         }
 

@@ -1,10 +1,18 @@
-local utils = require "LuaUtils"
 local env = require "env"
-local tl = require "TileLink"
 local chi = require "CHI"
-local verilua = verilua
+local math = require "math"
+local utils = require "LuaUtils"
+local tl = require "TileLink"
+
+local type = type
+local table = table
 local assert = assert
+local tostring = tostring
 local expect = env.expect
+
+local dut = _G.dut
+local fork = _G.fork
+local verilua = _G.verilua
 
 local TLParam = tl.TLParam
 local TLAtomics = tl.TLAtomics
@@ -8673,6 +8681,263 @@ local test_SnpCleanShared = env.register_test_case "test_SnpCleanShared" {
     end
 }
 
+local test_cmo_request = env.register_test_case "test_cmo_request" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        local test_cmo_on_miss = function (cbo_opcode)
+            -- CMO.cbo_clean on I
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.I, 0)
+            env.negedge()
+                tl_a:cmo(to_address(0x01, 0x01), TLParam.cbo_clean, 1) -- source = 1
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.CleanShared) end)
+            chi_rxrsp:comp(0, 5, CHIResp.I)
+
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.HintAck) and tl_d.bits.source:is(1) end)
+            
+            env.negedge(10)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test_cmo_on_miss(TLParam.cbo_clean)
+        test_cmo_on_miss(TLParam.cbo_flush)
+        test_cmo_on_miss(TLParam.cbo_inval)
+
+        local test_cbo_clean = function (init_state, init_clientsOH, probeack_dirty)
+            printf("CMO.cbo_clean at state: %s, clientsOH: %x\n", MixedState(init_state), init_clientsOH)
+            local dirty, need_probe, expect_resp, expect_state = table.unpack(assert(({
+                [MixedState.TD]  = { true,  false, CHIResp.UC_PD, MixedState.TC  },
+                [MixedState.TC]  = { false, false, CHIResp.UC,    MixedState.TC  },
+                [MixedState.BC]  = { false, false, CHIResp.SC,    MixedState.BC  },
+                [MixedState.BD]  = { true,  false, CHIResp.SC_PD, MixedState.BC  },
+                [MixedState.TTD] = { true,  true,  CHIResp.UC_PD, MixedState.TTC },
+                [MixedState.TTC] = { probeack_dirty, true,  probeack_dirty and CHIResp.UC_PD or CHIResp.UC, MixedState.TTC },
+            })[init_state]))
+            local expect_data = probeack_dirty and {"0xabab", "0xefef"} or {"0xd1e1ad", "0xb1e1ef"}
+
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, init_state, init_clientsOH)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+
+            env.negedge()
+                tl_a:cmo(to_address(0x01, 0x01), TLParam.cbo_clean, 1) -- source = 1
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.CleanShared) end)
+            
+            env.negedge(math.random(1, 10))
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpCleanShared, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            
+            if need_probe then
+                env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toB) end)
+                if probeack_dirty then
+                    tl_c:probeack_data(to_address(0x01, 0x01), TLParam.TtoB, "0xabab", "0xefef", 0)
+                else
+                    tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoB, 0)
+                end
+            end
+
+            fork {
+                function ()
+                    if dirty then
+                        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(expect_data[1]) and chi_txdat.bits.resp:is(expect_resp) end)
+                        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.dataID:is(2) and chi_txdat.bits.data:is_hex_str(expect_data[2]) and chi_txdat.bits.resp:is(expect_resp) end)
+                    else
+                        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(expect_resp) end)
+                    end
+                end,
+                function ()
+                    if dirty then
+                        env.expect_happen_until(10, function () return mp.task_s3_isMshrTask:is(need_probe and 1 or 0) and mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(expect_state) end)
+                    else
+                        env.expect_not_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) end)
+                    end
+                end
+            }
+            env.negedge(30)
+
+            chi_rxrsp:comp(0, 5, CHIResp.I)
+            
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.HintAck) and tl_d.bits.source:is(1) end)
+            
+            env.negedge(10)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test_cbo_clean(MixedState.TD, 0x00, false)
+        test_cbo_clean(MixedState.TC, 0x00, false)
+        test_cbo_clean(MixedState.BC, 0x00, false)
+        test_cbo_clean(MixedState.BD, 0x00, false)
+        test_cbo_clean(MixedState.TD, 0x03, false)
+        test_cbo_clean(MixedState.TC, 0x03, false)
+        test_cbo_clean(MixedState.TTD, 0x01, false)
+        test_cbo_clean(MixedState.TTD, 0x01, true)
+        test_cbo_clean(MixedState.TTC, 0x01, false)
+        test_cbo_clean(MixedState.TTC, 0x01, true)
+
+        local test_cbo_flush = function (init_state, init_clientsOH, probeack_dirty)
+            printf("CMO.cbo_flush at state: %s, clientsOH: %x\n", MixedState(init_state), init_clientsOH)
+            local dirty, need_probe, expect_resp, expect_state = table.unpack(assert(({
+                [MixedState.TD]  = { true,  init_clientsOH ~= 0, CHIResp.I_PD, MixedState.I  },
+                [MixedState.TC]  = { false, init_clientsOH ~= 0, CHIResp.I,    MixedState.I  },
+                [MixedState.BC]  = { false, init_clientsOH ~= 0, CHIResp.I,    MixedState.I  },
+                [MixedState.BD]  = { true,  init_clientsOH ~= 0, CHIResp.I_PD, MixedState.I  },
+                [MixedState.TTD] = { true,  true,  CHIResp.I_PD, MixedState.I },
+                [MixedState.TTC] = { probeack_dirty, true,  probeack_dirty and CHIResp.I_PD or CHIResp.I, MixedState.I },
+            })[init_state]))
+            local expect_data = probeack_dirty and {"0xabab", "0xefef"} or {"0xd1e1ad", "0xb1e1ef"}
+
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, init_state, init_clientsOH)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+
+            env.negedge()
+                tl_a:cmo(to_address(0x01, 0x01), TLParam.cbo_flush, 1) -- source = 1
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.CleanInvalid) end)
+            
+            env.negedge(math.random(1, 10))
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpCleanInvalid, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            
+            if need_probe then
+                env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
+                if probeack_dirty then
+                    tl_c:probeack_data(to_address(0x01, 0x01), TLParam.TtoN, "0xabab", "0xefef", 0)
+                else
+                    if init_clientsOH == 0x01 then
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoN, 0)
+                    elseif init_clientsOH == 0x03 then
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 0)
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 16)
+                    else
+                        assert(false, "init_clientsOH: " .. init_clientsOH) 
+                    end
+                end
+            end
+
+            fork {
+                function ()
+                    if dirty then
+                        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(expect_data[1]) and chi_txdat.bits.resp:is(expect_resp) end)
+                        env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespData) and chi_txdat.bits.dataID:is(2) and chi_txdat.bits.data:is_hex_str(expect_data[2]) and chi_txdat.bits.resp:is(expect_resp) end)
+                    else
+                        env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(expect_resp) end)
+                    end
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return mp.task_s3_isMshrTask:is(need_probe and 1 or 0) and mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(expect_state) end)
+                end
+            }
+            env.negedge(30)
+
+            chi_rxrsp:comp(0, 5, CHIResp.I)
+            
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.HintAck) and tl_d.bits.source:is(1) end)
+            
+            env.negedge(10)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test_cbo_flush(MixedState.TD, 0x00, false)
+        test_cbo_flush(MixedState.TC, 0x00, false)
+        test_cbo_flush(MixedState.BC, 0x00, false)
+        test_cbo_flush(MixedState.BD, 0x00, false)
+        test_cbo_flush(MixedState.TD, 0x03, false)
+        test_cbo_flush(MixedState.TC, 0x03, false)
+        test_cbo_flush(MixedState.TTD, 0x01, false)
+        test_cbo_flush(MixedState.TTD, 0x01, true)
+        test_cbo_flush(MixedState.TTC, 0x01, false)
+        test_cbo_flush(MixedState.TTC, 0x01, true)
+
+        local test_cbo_inval = function (init_state, init_clientsOH, probeack_dirty)
+            printf("CMO.cbo_inval at state: %s, clientsOH: %x\n", MixedState(init_state), init_clientsOH)
+            local need_probe = init_clientsOH ~= 0
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, init_state, init_clientsOH)
+                write_ds(0x01, utils.uint_to_onehot(0), utils.bitpat_to_hexstr({
+                    {s = 0,   e = 63, v = 0xd1e1ad},
+                    {s = 256, e = 256 + 63, v = 0xb1e1ef}
+                }, 512))
+
+            env.negedge()
+                tl_a:cmo(to_address(0x01, 0x01), TLParam.cbo_inval, 1) -- source = 1
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeInvalid) end)
+            
+            env.negedge(math.random(1, 10))
+                chi_rxsnp:send_request(to_address(0x01, 0x01), OpcodeSNP.SnpMakeInvalid, 0, false, 3) -- txn_id = 0, ret2src = false, src_id = 3
+            
+            if need_probe then
+                env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) end)
+                if probeack_dirty then
+                    tl_c:probeack_data(to_address(0x01, 0x01), TLParam.TtoN, "0xabab", "0xefef", 0)
+                else
+                    if init_clientsOH == 0x01 then
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoN, 0)
+                    elseif init_clientsOH == 0x03 then
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 0)
+                        tl_c:probeack(to_address(0x01, 0x01), TLParam.BtoN, 16)
+                    else
+                        assert(false, "init_clientsOH: " .. init_clientsOH) 
+                    end
+                end
+            end
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return mp.task_s3_isMshrTask:is(need_probe and 1 or 0) and mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) end)
+                end
+            }
+            env.negedge(30)
+
+            chi_rxrsp:comp(0, 5, CHIResp.I)
+            
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.HintAck) and tl_d.bits.source:is(1) end)
+            
+            env.negedge(10)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test_cbo_inval(MixedState.TD, 0x00, false)
+        test_cbo_inval(MixedState.TC, 0x00, false)
+        test_cbo_inval(MixedState.BC, 0x00, false)
+        test_cbo_inval(MixedState.BD, 0x00, false)
+        test_cbo_inval(MixedState.TD, 0x03, false)
+        test_cbo_inval(MixedState.TC, 0x03, false)
+        test_cbo_inval(MixedState.TTD, 0x01, false)
+        test_cbo_inval(MixedState.TTD, 0x01, true)
+        test_cbo_inval(MixedState.TTC, 0x01, false)
+        test_cbo_inval(MixedState.TTC, 0x01, true)
+        
+        env.negedge(100)
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -8766,6 +9031,7 @@ verilua "mainTask" { function ()
     test_s2s3_block_release()
     test_atomic_load_and_swap()
     test_SnpCleanShared()
+    test_cmo_request()
     end
 
    

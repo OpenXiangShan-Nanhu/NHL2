@@ -94,7 +94,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
                 }
             }
 
-            val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp && !s.isAtomicOpt.getOrElse(false.B) }).asUInt
+            val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp && !s.isAtomicOpt.getOrElse(false.B) && !s.isCMOOpt.getOrElse(false.B) }).asUInt
 
             // Update the ready signal for this buffer based on conflict checks
             buf.ready := !addrConflictVec.orR

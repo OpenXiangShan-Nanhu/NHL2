@@ -30,7 +30,12 @@ local TLParam = utils.enum_define {
     -- Report
     TtoT = 3,
     BtoB = 4,
-    NtoN = 5
+    NtoN = 5,
+
+    -- Custom
+    cbo_clean = 1,
+    cbo_flush = 2,
+    cbo_inval = 3
 }
 
 local TLAtomics = utils.enum_define {

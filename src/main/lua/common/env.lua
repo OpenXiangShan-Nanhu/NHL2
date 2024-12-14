@@ -104,6 +104,9 @@ local function register_test_case(case_name)
         local new_env = {
             print = function(...)
                 print("|", ...)
+            end,
+            printf = function(...)
+                io.write("|\t" .. string.format(...))
             end
         }
 

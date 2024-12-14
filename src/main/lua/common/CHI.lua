@@ -17,6 +17,9 @@ local OpcodeREQ = setmetatable({
     PCrdReturn        = 0x05 + lshift(0, 6),
     ReadUnique        = 0x07 + lshift(0, 6),
 
+    CleanShared       = 0x08 + lshift(0, 6),
+    CleanInvalid      = 0x09 + lshift(0, 6),
+    MakeInvalid       = 0x0a + lshift(0, 6),
     CleanUnique       = 0x0b + lshift(0, 6),
     MakeUnique        = 0x0c + lshift(0, 6),
     Evict             = 0x0d + lshift(0, 6),

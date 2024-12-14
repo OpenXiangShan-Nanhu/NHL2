@@ -68,6 +68,7 @@ case class L2Param(
     dataEccCode: String = "secded",       // Option: "none", "identity", "parity", "sec", "secded"
     useDiplomacy: Boolean = false,        // If use diplomacy, EdgeInKey should be passed in
     alwaysWriteBackFull: Boolean = false, // If true, replace operation will always trigger WriteBackFull no matter whether the cacheline is clean or dirty
+    enableBypassCMO: Boolean = true,
 
     // Low Power
     hasLowPowerInterface: Boolean = false,
@@ -138,6 +139,8 @@ trait HasL2Param {
     val replacementPolicy = l2param.replacementPolicy
 
     val alwaysWriteBackFull = l2param.alwaysWriteBackFull
+
+    val enableBypassCMO = l2param.enableBypassCMO
 
     // Low power related parameters
     val hasLowPowerInterface      = l2param.hasLowPowerInterface

@@ -54,8 +54,8 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val w_evict_comp      = Bool() // comp for evict transaction
     val w_replResp        = Bool()
 
-    // For prefetch
-    val s_hintack_opt = if (enablePrefetch) Some(Bool()) else None // send prefetch response
+    // For prefetch or CMO
+    val s_hintack_opt = if (enablePrefetch || enableBypassCMO) Some(Bool()) else None // send prefetch/cmo response
 
     // Seperate Data and Response from Home
     // Response from Home, Data from Subordinate
@@ -69,6 +69,8 @@ class MshrFsmState()(implicit p: Parameters) extends L2Bundle {
     val w_ncbwrdata_sent_opt = if (enableBypassAtomic) Some(Bool()) else None
     val w_dbidresp_opt       = if (enableBypassAtomic) Some(Bool()) else None
 
+    // For CMO transactions
+    val s_cmo_opt = if (enableBypassCMO) Some(Bool()) else None
 }
 
 class MshrInfo()(implicit p: Parameters) extends L2Bundle {
@@ -105,6 +107,7 @@ class MshrStatus()(implicit p: Parameters) extends L2Bundle {
     val hasPendingRefill = Bool()
     val gotCompResp      = Bool()
     val isAtomicOpt      = if (enableBypassAtomic) Some(Bool()) else None
+    val isCMOOpt         = if (enableBypassCMO) Some(Bool()) else None
 
     val waitProbeAck = Bool() // for assertion use only
 }
@@ -219,6 +222,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val reqIsAcquire  = req.opcode === AcquireBlock || req.opcode === AcquirePerm
     val reqIsPrefetch = req.opcode === Hint && req.param === 0.U && enablePrefetch.B
     val reqIsAtomic   = (req.opcode === ArithmeticData || req.opcode === LogicalData) && enableBypassAtomic.B
+    val reqIsCMO      = req.opcode === Hint && req.param =/= 0.U && enableBypassCMO.B
     val reqNeedT      = needT(req.opcode, req.param)
     val reqNeedB      = needB(req.opcode, req.param)
 
@@ -295,7 +299,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         dirResp := allocDirResp
         state   := allocState
 
-        snpGotDirty := allocReq.snpGotDirty
+        snpGotDirty     := allocReq.snpGotDirty
         snpHitWriteBack := allocReq.snpHitWriteBack
 
         isAcquireProbe := !allocState.s_aprobe
@@ -373,6 +377,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                 !state.s_read ||
                 !state.s_makeunique ||
                 !state.s_atomic_opt.getOrElse(true.B) && state.w_aprobeack ||
+                !state.s_cmo_opt.getOrElse(true.B) ||
                 (!state.s_evict && !mayChangeEvict && !mayCancelEvict || !state.s_wb && !mayCancelWb) && state.w_rprobeack // Evict/WriteBackFull should wait for refill and probeack finish
         )
 
@@ -402,6 +407,13 @@ class MSHR()(implicit p: Parameters) extends L2Module {
                     (req.opcode === LogicalData && req.param === TLAtomics.AND)     -> AtomicLoad_CLR,
                     (req.opcode === LogicalData && req.param === TLAtomics.SWAP)    -> AtomicSwap
                     // TODO: AtomicCompare
+                )
+            ),
+            (!state.s_cmo_opt.getOrElse(true.B) && req.opcode === Hint && enableBypassCMO.B) -> ParallelPriorityMux(
+                Seq(
+                    (req.param === 1.U) -> CleanShared,
+                    (req.param === 2.U) -> CleanInvalid,
+                    (req.param === 3.U) -> MakeInvalid
                 )
             )
         )
@@ -435,6 +447,11 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         if (enableBypassAtomic) {
             val s_atomic = opcode(5, 3) === "b101".U /* AtomicStore */ || opcode(5, 3) === "b110".U /* AtomicLoad */ || opcode === AtomicSwap
             state.s_atomic_opt.get := state.s_atomic_opt.get || s_atomic
+        }
+
+        if (enableBypassCMO) {
+            val s_cmo = opcode === CleanShared || opcode === CleanInvalid || opcode === MakeInvalid
+            state.s_cmo_opt.get := state.s_cmo_opt.get || s_cmo
         }
 
         val _lastReqState = WireInit(0.U.asTypeOf(new LastReqState))
@@ -562,22 +579,26 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     );
     mpTask_refill.bits.param := Mux(
         reqIsGet || reqIsPrefetch,
-        0.U,       // Get -> AccessAckData
-        MuxLookup( // Acquire -> Grant
+        0.U, // Get -> AccessAckData
+        Mux(
+            reqIsCMO,
             req.param,
-            req.param
-        )(
-            Seq(
-                NtoB -> Mux(reqPromoteT, toT, toB),
-                BtoT -> toT,
-                NtoT -> toT
+            MuxLookup( // Acquire -> Grant
+                req.param,
+                req.param
+            )(
+                Seq(
+                    NtoB -> Mux(reqPromoteT, toT, toB),
+                    BtoT -> toT,
+                    NtoT -> toT
+                )
             )
         )
     )
     mpTask_refill.bits.isCHIOpcode := false.B
     mpTask_refill.bits.readTempDs  := needTempDsData
     mpTask_refill.bits.isReplTask  := false.B
-    mpTask_refill.bits.updateDir   := Mux(reqIsAtomic, dirResp.hit, !reqIsGet || reqIsGet && needProbe || !dirResp.hit) // Atomic will invalidate the cacheline due to the incoming Snoop(nested transaction), the responsibility for updating the directory is transferred to this MSHR
+    mpTask_refill.bits.updateDir   := !reqIsCMO && Mux(reqIsAtomic, dirResp.hit, !reqIsGet || reqIsGet && needProbe || !dirResp.hit) // Atomic will invalidate the cacheline due to the incoming Snoop(nested transaction), the responsibility for updating the directory is transferred to this MSHR
     mpTask_refill.bits.tempDsDest := Mux(
         gotRefilledData || probeGotDirty || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty,
         /** For TRUNK state, dirty data will be written into [[DataStorage]] after receiving ProbeAckData */
@@ -982,7 +1003,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         val opcode = rxrsp.bits.chiOpcode
         val resp   = rxrsp.bits.resp
         when(opcode === Comp) {
-            when(resp =/= Resp.I) {
+            when(resp =/= Resp.I || reqIsCMO) {
                 // `Comp` for read transactions are usually NOT equal to 0(Resp.I)
                 state.w_comp := true.B
 
@@ -1582,12 +1603,13 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             //      - Snoop should be processed normally after receiving all Data response packets.
             !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first || !state.s_cbwrdata || !state.w_evict_comp
         )
-    } || reqIsAtomic && dirResp.hit
+    } || reqIsAtomic && dirResp.hit || reqIsCMO
     io.status.hasPendingRefill := hasPendingRefill // Used by SnoopBuffer only
     io.status.gotCompResp      := gotCompResp      // Used by SnoopBuffer only
     io.status.gotDirtyData     := gotDirty || probeGotDirty && isAcquireProbe || dirResp.hit && dirResp.meta.isDirty || releaseGotDirty
 
     io.status.isAtomicOpt.foreach(_ := reqIsAtomic)
+    io.status.isCMOOpt.foreach(_ := reqIsCMO)
 
     val addr_reqTag_debug  = Cat(io.status.reqTag, io.status.set, 0.U(6.W))
     val addr_metaTag_debug = Cat(io.status.metaTag, io.status.set, 0.U(6.W))
