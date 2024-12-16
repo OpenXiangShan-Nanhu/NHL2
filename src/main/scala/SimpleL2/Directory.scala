@@ -391,23 +391,22 @@ class Directory()(implicit p: Parameters) extends L2Module {
         assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "replacerSRAM is not ready for write!")
     }
 
-    val dirWriteValid_s3 = RegNext(io.dirWrite_s3.fire, false.B)
-    val dirWriteInfo_s3  = RegEnable(io.dirWrite_s3.bits, io.dirWrite_s3.fire)
-
     // -----------------------------------------------------------------------------------------
     // Stage 4(dir write)
     // -----------------------------------------------------------------------------------------
+    val dirWriteValid_s4 = RegNext(io.dirWrite_s3.fire, false.B)
+    val dirWriteInfo_s4  = RegEnable(io.dirWrite_s3.bits, 0.U.asTypeOf(chiselTypeOf(io.dirWrite_s3.bits)), io.dirWrite_s3.fire)
+
     /**
      * MetaSRAMs should be updated on the following conditions:
-     *  1. When `dirWriteValid_s3` is true.
+     *  1. When `dirWriteValid_s4` is true.
      *  2. When the reset is not finished and we should write an initial value to every SRAM entry to avoid X propagation.
      */
-
     metaSRAMs.zipWithIndex.foreach { case (sram, i) =>
-        val sramWayMask = dirWriteInfo_s3.wayOH(i * 2 + (group - 1), i * 2)
-        sram.io.w.req.valid       := !io.resetFinish || dirWriteValid_s3
-        sram.io.w.req.bits.setIdx := Mux(io.resetFinish, dirWriteInfo_s3.set, resetIdx - 1.U)
-        sram.io.w.req.bits.data   := Mux(io.resetFinish, VecInit(Seq.fill(group)(dirWriteInfo_s3.meta)), VecInit(Seq.fill(group)(0.U.asTypeOf(new DirectoryMetaEntry))))
+        val sramWayMask = dirWriteInfo_s4.wayOH(i * 2 + (group - 1), i * 2)
+        sram.io.w.req.valid       := !io.resetFinish || dirWriteValid_s4
+        sram.io.w.req.bits.setIdx := Mux(io.resetFinish, dirWriteInfo_s4.set, resetIdx - 1.U)
+        sram.io.w.req.bits.data   := Mux(io.resetFinish, VecInit(Seq.fill(group)(dirWriteInfo_s4.meta)), VecInit(Seq.fill(group)(0.U.asTypeOf(new DirectoryMetaEntry))))
         sram.io.w.req.bits.waymask.foreach(_ := Mux(io.resetFinish, sramWayMask, Fill(group, 1.U)))
         assert(!(sram.io.w.req.valid && PopCount(sramWayMask) > 1.U), "0b%b", sramWayMask)
     }
@@ -422,14 +421,14 @@ class Directory()(implicit p: Parameters) extends L2Module {
 
     when(io.resetFinish) {
         val sramWrReady      = metaSRAMs.map(_.io.w.req.ready).reduce(_ & _)
-        val dirWriteReady_s3 = io.resetFinish && sramWrReady
-        assert(!(dirWriteValid_s3 && !dirWriteReady_s3))
-        assert(!(dirWriteValid_s3 && !sramWrReady), "dirWrite_s3 while metaSRAM is not ready!")
-        assert(!(dirWriteValid_s3 && PopCount(dirWriteInfo_s3.wayOH) > 1.U))
+        val dirWriteReady_s4 = io.resetFinish && sramWrReady
+        assert(!(dirWriteValid_s4 && !dirWriteReady_s4))
+        assert(!(dirWriteValid_s4 && !sramWrReady), "dirWrite_s3 while metaSRAM is not ready!")
+        assert(!(dirWriteValid_s4 && PopCount(dirWriteInfo_s4.wayOH) > 1.U))
     }
     when(!io.resetFinish) {
         assert(!io.dirRead_s1.fire, "cannot read directory while not reset finished!")
-        assert(!dirWriteValid_s3, "cannot write directory while not reset finished!")
+        assert(!dirWriteValid_s4, "cannot write directory while not reset finished!")
         metaSRAMs.foreach { sram =>
             assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "write metaSRAM should always be ready!")
         }
