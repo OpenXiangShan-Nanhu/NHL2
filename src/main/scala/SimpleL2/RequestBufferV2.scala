@@ -70,7 +70,7 @@ class RequestBufferV2()(implicit p: Parameters) extends L2Module {
 
     def addrConflict(set: UInt, tag: UInt): Bool = {
         val mshrAddrConflict = VecInit(io.mshrStatus.map { case s =>
-            s.valid && s.set === set && (s.reqTag === tag || s.lockWay && !s.state.isInvalid && s.metaTag === tag)
+            s.valid && s.set === set && (s.reqTag === tag || s.lockWay && s.metaTag === tag)
         }).asUInt.orR
 
         // io.mpStatus_s45678 provides stage info from stage 4 to stage 7.
