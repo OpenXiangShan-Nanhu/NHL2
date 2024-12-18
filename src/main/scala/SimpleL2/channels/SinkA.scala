@@ -102,6 +102,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         amoDataBufWr.bits.data       := io.a.bits.data
         io.task.bits.amoBufIdOpt.get := amoDataBufWr.idx
         io.task.bits.offsetOpt.get   := offset
+        io.task.bits.sizeOpt.get     := io.a.bits.size
         io.task.bits.maskOpt.get     := io.a.bits.mask
     }
 

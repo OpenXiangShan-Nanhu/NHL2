@@ -420,7 +420,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     )
     io.tasks.txreq.bits.addr       := Cat(Mux(!state.s_read || !state.s_makeunique, req.tag, meta.tag), req.set, req.offsetOpt.getOrElse(0.U).asTypeOf(UInt(6.W)))
     io.tasks.txreq.bits.expCompAck := !state.s_read || !state.s_makeunique // Only for Read* not for Evict
-    io.tasks.txreq.bits.size       := log2Ceil(blockBytes).U
+    io.tasks.txreq.bits.size       := Mux(reqIsAtomic, req.sizeOpt.getOrElse(log2Ceil(blockBytes).U), log2Ceil(blockBytes).U)
     io.tasks.txreq.bits.order      := Order.None                           // No ordering required
     io.tasks.txreq.bits.memAttr    := MemAttr(allocate = !state.s_wb, cacheable = true.B, device = false.B, ewa = true.B)
     io.tasks.txreq.bits.snpAttr    := true.B

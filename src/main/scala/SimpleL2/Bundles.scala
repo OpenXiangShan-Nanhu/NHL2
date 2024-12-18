@@ -52,9 +52,11 @@ class TaskBundle(implicit p: Parameters) extends L2Bundle {
 
     val isLowPowerTaskOpt = if (hasLowPowerInterface) Some(Bool()) else None
 
+    // Extra signals for atomic transaction
     val amoBufIdOpt    = if (enableBypassAtomic) Some(UInt(log2Ceil(nrAtomicDataBuffer).W)) else None
     val maskOpt        = if (enableBypassAtomic) Some(UInt((atomicDataBufferDataBits / 8 / 2).W)) else None
     val offsetOpt      = if (enableBypassAtomic) Some(UInt(log2Ceil(blockBytes).W)) else None
+    val sizeOpt        = if (enableBypassAtomic) Some(UInt(log2Ceil(blockBytes).W)) else None
     val isAtomicAckOpt = if (enableBypassAtomic) Some(Bool()) else None
 
     def resp = param             // alias to opcode, if isCHIOpcode is true

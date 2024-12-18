@@ -8384,6 +8384,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 local random_char = tostring(math.random(0, 9))
                 local data_str = "0x1122" .. random_char
                 local random_mask = math.random(0, 255)
+                local random_size = math.random(1, 3)
                 fork {
                     function ()
                         env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
@@ -8392,14 +8393,14 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                     end
                 }
                 if tl_opcode == TLOpcodeA.ArithmeticData then
-                    tl_a:arithmetic_data(to_address(0x01, 0x01), offset, tl_param, data_str, random_mask, 0x01) -- source = 0x01
+                    tl_a:arithmetic_data(to_address(0x01, 0x01), offset, random_size, tl_param, data_str, random_mask, 0x01) -- source = 0x01
                 elseif tl_opcode == TLOpcodeA.LogicalData then
-                    tl_a:logical_data(to_address(0x01, 0x01), offset, tl_param, data_str, random_mask, 0x01) -- source = 0x01
+                    tl_a:logical_data(to_address(0x01, 0x01), offset, random_size, tl_param, data_str, random_mask, 0x01) -- source = 0x01
                 else
                     assert(false, "Unexpected opcode")
                 end
             
-            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) and chi_txreq.bits.opcode:is(expect_chi_opcode) end)
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) and chi_txreq.bits.opcode:is(expect_chi_opcode) and chi_txreq.bits.size:is(random_size) end)
             chi_txreq.bits.snoopMe:expect(0)
 
             local dbid = math.random(1, 5)
@@ -8452,6 +8453,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 local random_char = tostring(math.random(0, 9))
                 local data_str = "0x1122" .. random_char
                 local random_mask = math.random(0, 255)
+                local random_size = math.random(1, 3)
                 fork {
                     function ()
                         env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
@@ -8459,7 +8461,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                             env.expect_not_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) end)
                     end
                 }
-                tl_a:arithmetic_data(to_address(0x01, 0x01), offset, TLAtomics.MIN, data_str, random_mask, 0x01) -- source = 0x01
+                tl_a:arithmetic_data(to_address(0x01, 0x01), offset, random_size, TLAtomics.MIN, data_str, random_mask, 0x01) -- source = 0x01
 
             if clientsOH == 0x02 then
                 env.expect_happen_until(10, function () return tl_b:fire() and tl_b.bits.param:is(TLParam.toN) and tl_b.bits.address:is(to_address(0x01, 0x01)) and tl_b.bits.source:is(16) end)
@@ -8472,7 +8474,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 assert(clientsOH == 0x00)
             end
             
-            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) end)
+            env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) and chi_txreq.bits.size:is(random_size) end)
             chi_txreq.bits.snoopMe:expect(1)
             
             local need_data = state == MixedState.BD or state == MixedState.TD or state == MixedState.TTD
