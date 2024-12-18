@@ -71,7 +71,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         }
     } else {
         val (tag, set, offset) = parseAddress(io.a.bits.address)
-        assert(!(io.a.fire && offset =/= 0.U))
+        assert(!(io.a.fire && !isAtomicReq && offset =/= 0.U))
 
         io.task.valid        := io.a.valid && Mux(isAtomicReq, amoDataBufReady, true.B)
         io.task.bits.channel := L2Channel.ChannelA
