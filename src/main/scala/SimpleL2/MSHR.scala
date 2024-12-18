@@ -1055,9 +1055,11 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             assert(lastReqState.orR)
         }
 
-        // TODO: DBIRRespOrd for Atomic response
-        when(enableBypassAtomic.B && opcode === DBIDResp) {
+        when(enableBypassAtomic.B && (opcode === DBIDResp || opcode === DBIDRespOrd)) {
             state.w_dbidresp_opt.get := true.B
+
+            rspDBID_wb  := rxrsp.bits.dbID
+            rspSrcID_wb := rxrsp.bits.srcID
         }
 
         when(opcode =/= Comp && opcode =/= CompDBIDResp && opcode =/= RetryAck && opcode =/= PCrdGrant && opcode =/= RespSepData && opcode =/= DBIDResp) {

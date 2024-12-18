@@ -76,6 +76,7 @@ object CHIOpcodeRSP {
     val ReadReceipt    = 0x8.U(width.W)
     val SnpRespFwded   = 0x9.U(width.W)
     val RespSepData    = 0xb.U(width.W)
+    val DBIDRespOrd    = 0xe.U(width.W)
 }
 
 object CHIOpcodeSNP {

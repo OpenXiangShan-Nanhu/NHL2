@@ -120,7 +120,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isSnpToN_s2    = CHIOpcodeSNP.isSnpToN(task_s2.opcode) && task_s2.isChannelB
     val isSnpToB_s2    = CHIOpcodeSNP.isSnpToB(task_s2.opcode) && task_s2.isChannelB
     val isSnpFwd_s2    = CHIOpcodeSNP.isSnpXFwd(task_s2.opcode) && task_s2.isChannelB && supportDCT.B
-    val isMshrTXDAT_s2 = task_s2.isMshrTask && !task_s2.isReplTask && task_s2.isCHIOpcode && (task_s2.readTempDs || task_s2.opcode === CHIOpcodeDAT.NonCopyBackWrData /* For Atomic transaction */ ) && task_s2.channel === CHIChannel.TXDAT
+    val isMshrTXDAT_s2 = task_s2.isMshrTask && !task_s2.isReplTask && task_s2.isCHIOpcode && (task_s2.readTempDs || task_s2.opcode === NonCopyBackWrData /* For Atomic transaction */ ) && task_s2.channel === CHIChannel.TXDAT
     val isCompData_s2  = isMshrTXDAT_s2 && task_s2.opcode === CompData && supportDCT.B
     val isTXDAT_s2     = task_s2.isChannelB && task_s2.readTempDs && task_s2.snpHitReq && !isSnpFwd_s2
     val snpNeedMshr_s2 = isTXDAT_s2 && io.txdat_s2.valid && !io.txdat_s2.ready // If txdat is not ready, we should let this req enter mshr, the mshrId is task_s2.snpHitMshrId

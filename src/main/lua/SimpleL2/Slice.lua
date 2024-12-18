@@ -8402,12 +8402,14 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
             env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01) + offset) and chi_txreq.bits.opcode:is(expect_chi_opcode) end)
             chi_txreq.bits.snoopMe:expect(0)
 
-            chi_rxrsp:dbidresp(0, 0x03) -- dbid = 0x03
+            local dbid = math.random(1, 5)
+            chi_rxrsp:dbidresp(0, dbid)
 
             env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            chi_txdat.bits.txnID:expect(dbid)
             env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
 
-            chi_rxdat:compdat_1(0, "0xdead", 0x03, CHIResp.I) -- dbid = 0x03
+            chi_rxdat:compdat_1(0, "0xdead", dbid, CHIResp.I)
 
             fork {
                 function ()
@@ -8491,12 +8493,14 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
             end
 
-            chi_rxrsp:dbidresp(0, 0x03) -- dbid = 0x03
+            local dbid = math.random(1, 5)
+            chi_rxrsp:dbidresp(0, dbid)
 
             env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            chi_txdat.bits.txnID:expect(dbid)
             env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
 
-            chi_rxdat:compdat_1(0, "0xdead" .. random_char, 0x03, CHIResp.I) -- dbid = 0x03
+            chi_rxdat:compdat_1(0, "0xdead" .. random_char, dbid, CHIResp.I)
 
             fork {
                 function ()
