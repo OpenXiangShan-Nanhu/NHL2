@@ -8084,7 +8084,9 @@ local test_SnpOnce = env.register_test_case "test_SnpOnce" {
 
             env.negedge(100)
         end
+        iterate_all(test, MixedState.TTC, false)
         iterate_all(test, MixedState.TTC, true)
+        iterate_all(test, MixedState.TTD, false)
         iterate_all(test, MixedState.TTD, true)
 
         -- Test SnpOnce on invalid cacheline

@@ -185,14 +185,14 @@ local function build_channel(tl_prefix, chi_prefix)
         env.negedge()
     end
 
-    tl_a.arithmetic_data = function (this, addr, offset, param, data_str, mask, source)
+    tl_a.arithmetic_data = function (this, addr, offset, size, param, data_str, mask, source)
         env.negedge()
             this.valid:set(1)
             this.bits.opcode:set(TLOpcodeA.ArithmeticData)
             this.bits.address:set(addr + offset, true) -- (<value>, <force single beat>)
             this.bits.param:set(param)
             this.bits.source:set(source or 0)
-            this.bits.size:set(3) -- 2^3 == 8
+            this.bits.size:set(size)
             this.bits.data:set_str(data_str)
             this.bits.mask:set(mask)
         env.negedge()
@@ -200,14 +200,14 @@ local function build_channel(tl_prefix, chi_prefix)
         env.negedge()
     end
 
-    tl_a.logical_data = function (this, addr, offset, param, data_str, mask, source)
+    tl_a.logical_data = function (this, addr, offset, size, param, data_str, mask, source)
         env.negedge()
             this.valid:set(1)
             this.bits.opcode:set(TLOpcodeA.LogicalData)
             this.bits.address:set(addr + offset, true) -- (<value>, <force single beat>)
             this.bits.param:set(param)
             this.bits.source:set(source or 0)
-            this.bits.size:set(3) -- 2^3 == 8
+            this.bits.size:set(size)
             this.bits.data:set_str(data_str)
             this.bits.mask:set(mask)
         env.negedge()
@@ -301,6 +301,7 @@ local function build_channel(tl_prefix, chi_prefix)
         | ready
         | addr
         | opcode
+        | size
         | txnID
         | addr
         | allowRetry
