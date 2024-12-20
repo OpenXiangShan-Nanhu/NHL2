@@ -8069,10 +8069,10 @@ local test_SnpOnce = env.register_test_case "test_SnpOnce" {
 
                 function ()
                     env.expect_happen_until(50, function ()
-                        local expect_state = state
-                        if probeack_data and state == MixedState.TTC then 
-                            expect_state = MixedState.TTD 
-                        end
+                        local expect_state = ({
+                            [MixedState.TTC] = probeack_data and MixedState.TD or MixedState.TC,
+                            [MixedState.TTD] = MixedState.TD
+                        })[state]
 
                         return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and 
                             mp.io_dirWrite_s3_bits_meta_clientsOH:is(clientsOH) and
@@ -8294,11 +8294,11 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
 
                 function ()
                     env.expect_happen_until(50, function ()
-                        local expect_state = state
-                        if probeack_data and state == MixedState.TTC then
-                            expect_state = MixedState.TTD
-                        end
-                        
+                        local expect_state = ({
+                            [MixedState.TTC] = probeack_data and MixedState.TD or MixedState.TC,
+                            [MixedState.TTD] = MixedState.TD
+                        })[state]
+
                         return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and 
                             mp.io_dirWrite_s3_bits_meta_clientsOH:is(clientsOH) and
                             mp.io_dirWrite_s3_bits_meta_state:is(expect_state)

@@ -738,7 +738,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val isSnpClean        = CHIOpcodeSNP.isSnpCleanShared(snpOpcode)
     val snprespPassDirty  = Mux(isSnpFwd && isSnpUniqueX, false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || (isRealloc || isSnpFwd) && snpGotDirty) // snpGotDirty is TRUE when fwd snoop nested writeback mshr
     val snprespFinalDirty = isSnpOnceX && (meta.isDirty || probeGotDirty)
-    val snprespFinalState = Mux(isSnpOnceX || isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID))
+    val snprespFinalState = Mux(isSnpOnceX, Mux(needProbe && meta.isTrunk, TIP, meta.rawState), Mux(isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID)))
     val snprespNeedData = Mux(
         isRealloc,
         snpGotDirty || snpRetToSrc,
