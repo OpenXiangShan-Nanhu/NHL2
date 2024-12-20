@@ -8068,10 +8068,15 @@ local test_SnpOnce = env.register_test_case "test_SnpOnce" {
                 end,
 
                 function ()
-                    env.expect_happen_until(50, function () 
+                    env.expect_happen_until(50, function ()
+                        local expect_state = state
+                        if probeack_data and state == MixedState.TTC then 
+                            expect_state = MixedState.TTD 
+                        end
+
                         return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and 
                             mp.io_dirWrite_s3_bits_meta_clientsOH:is(clientsOH) and
-                            mp.io_dirWrite_s3_bits_meta_state:is(state)
+                            mp.io_dirWrite_s3_bits_meta_state:is(expect_state)
                     end)
                 end,
 
@@ -8288,10 +8293,15 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
                 end,
 
                 function ()
-                    env.expect_happen_until(50, function () 
+                    env.expect_happen_until(50, function ()
+                        local expect_state = state
+                        if probeack_data and state == MixedState.TTC then
+                            expect_state = MixedState.TTD
+                        end
+                        
                         return mp.task_s3_isMshrTask:is(1) and mp.io_dirWrite_s3_valid:is(1) and 
                             mp.io_dirWrite_s3_bits_meta_clientsOH:is(clientsOH) and
-                            mp.io_dirWrite_s3_bits_meta_state:is(state)
+                            mp.io_dirWrite_s3_bits_meta_state:is(expect_state)
                     end)
                 end,
 
@@ -8304,7 +8314,9 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
 
             env.negedge(100)
         end
+        iterate_all(test, MixedState.TTC, false)
         iterate_all(test, MixedState.TTC, true)
+        iterate_all(test, MixedState.TTD, false)
         iterate_all(test, MixedState.TTD, true)
 
         -- do
