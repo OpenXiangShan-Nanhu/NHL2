@@ -736,13 +736,13 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val isSnpToN          = CHIOpcodeSNP.isSnpToN(snpOpcode)
     val isSnpUniqueX      = CHIOpcodeSNP.isSnpUniqueX(snpOpcode)
     val isSnpClean        = CHIOpcodeSNP.isSnpCleanShared(snpOpcode)
-    val snprespPassDirty  = Mux(isSnpFwd && isSnpUniqueX, false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || (isRealloc || isSnpFwd) && snpGotDirty) // snpGotDirty is TRUE when fwd snoop nested writeback mshr
+    val snprespPassDirty  = Mux(isSnpFwd && (isSnpUniqueX || isSnpOnceX), false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || (isRealloc || isSnpFwd) && snpGotDirty) // snpGotDirty is TRUE when fwd snoop nested writeback mshr
     val snprespFinalDirty = isSnpOnceX && (meta.isDirty || probeGotDirty)
     val snprespFinalState = Mux(isSnpOnceX, Mux(needProbe && meta.isTrunk, TIP, meta.rawState), Mux(isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID)))
     val snprespNeedData = Mux(
         isRealloc,
         snpGotDirty || snpRetToSrc,
-        (gotDirty || probeGotDirty || meta.isDirty || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */ ) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
+        ((gotDirty || probeGotDirty || meta.isDirty) && !(isSnpFwd && isSnpOnceX) || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */ ) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
     ) && !isSnpMakeInvalidX
     val hasValidProbeAck = VecInit(probeAckParams.zip(meta.clientsOH.asBools).map { case (probeAck, en) => en && probeAck =/= NtoN }).asUInt.orR
     mpTask_snpresp.valid            := !state.s_snpresp && state.w_sprobeack && state.s_compdat && state.w_compdat_sent && Mux(mpTask_snpresp.bits.readTempDs, tempDsWriteFinish_dup, true.B)
@@ -751,10 +751,14 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     mpTask_snpresp.bits.dbID        := 0.U
     mpTask_snpresp.bits.isCHIOpcode := true.B
     mpTask_snpresp.bits.opcode      := Mux(snprespNeedData, Mux(isSnpFwd, SnpRespDataFwded, SnpRespData), Mux(isSnpFwd, SnpRespFwded, SnpResp))
-    mpTask_snpresp.bits.resp        := stateToResp(snprespFinalState, snprespFinalDirty, snprespPassDirty) // In SnpResp*, resp indicates the final cacheline state after receiving the Snp* transaction.
+    mpTask_snpresp.bits.resp        := stateToResp(snprespFinalState, snprespFinalDirty, snprespPassDirty)              // In SnpResp*, resp indicates the final cacheline state after receiving the Snp* transaction.
     mpTask_snpresp.bits.channel     := Mux(snprespNeedData, CHIChannel.TXDAT, CHIChannel.TXRSP)
-    mpTask_snpresp.bits.readTempDs  := snprespNeedData && !releaseGotDirty
-    mpTask_snpresp.bits.tempDsDest  := Mux(dirResp.hit && needProbe && probeGotDirty, DataDestination.TXDAT | DataDestination.DataStorage, DataDestination.TXDAT)
+    mpTask_snpresp.bits.readTempDs  := (snprespNeedData || probeGotDirty && isSnpOnceX && isSnpFwd) && !releaseGotDirty // SnpOnceFwd and got probe dirty data should be written back into DataStorage while the snpresp is still SnpRespFwded
+    mpTask_snpresp.bits.tempDsDest := Mux(
+        dirResp.hit && needProbe && probeGotDirty,
+        Mux(isSnpOnceX && isSnpFwd, DataDestination.DataStorage, DataDestination.TXDAT | DataDestination.DataStorage),
+        DataDestination.TXDAT
+    )
     mpTask_snpresp.bits.updateDir := hasValidProbeAck && !isRealloc && Mux(
         isSnpClean,
         probeGotDirty || dirResp.meta.isDirty,

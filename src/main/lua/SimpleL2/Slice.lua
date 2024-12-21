@@ -8143,11 +8143,12 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
             -- X            X
             --   Branch/Tip
             -- 
-            local is_dirty = state == MixedState.TD
-            local exp_resp = CHIResp.SC
-            if state == MixedState.TC or state == MixedState.TD then
-                exp_resp = CHIResp.UC
-            end
+            local exp_resp, is_dirty = table.unpack(({
+                [MixedState.BC] = {CHIResp.SC, false},
+                [MixedState.BD] = {CHIResp.SD, true},
+                [MixedState.TC] = {CHIResp.UC, false},
+                [MixedState.TD] = {CHIResp.UD, true}
+            })[state])
 
             env.negedge()
                 write_dir(0x01, ("0b0001"):number(), 0x05, state)
@@ -8165,22 +8166,8 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
 
             fork {
                 function ()
-                    if not is_dirty then
-                        env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(txn_id) and chi_txrsp.bits.tgtID:is(4) and chi_txrsp.bits.resp:is(exp_resp) end)
-                        chi_txrsp.bits.fwdState:expect(CHIResp.I)
-                    else
-                        env.expect_happen_until(20, function () 
-                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
-                                    chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
-                                    chi_txdat.bits.data:is_hex_str("0xaccc")
-                        end)
-                        chi_txdat.bits.fwdState:expect(CHIResp.I)
-                        env.expect_happen_until(20, function () 
-                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
-                                    chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 
-                                    chi_txdat.bits.data:is_hex_str("0xbddd") 
-                        end)
-                    end
+                    env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(txn_id) and chi_txrsp.bits.tgtID:is(4) end)
+                    chi_txrsp.bits.resp:is(exp_resp); chi_txrsp.bits.fwdState:expect(CHIResp.I)
                 end,
 
                 function ()
@@ -8207,6 +8194,7 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
             mshrs[0].io_status_valid:expect(0)
         end
         iterate_all(test, MixedState.BC)
+        iterate_all(test, MixedState.BD)
         iterate_all(test, MixedState.TC)
         iterate_all(test, MixedState.TD)
 
@@ -8220,7 +8208,7 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
             --   Trunk
             -- 
             local is_dirty = probeack_data or state == MixedState.TTD
-            local exp_resp = CHIResp.UC
+            local exp_resp = probeack_data and CHIResp.UD or CHIResp.UC
             env.negedge()
                 write_dir(0x01, ("0b0001"):number(), 0x05, state, clientsOH)
                 write_ds(0x01, ("0b0001"):number(), utils.bitpat_to_hexstr({
@@ -8257,25 +8245,9 @@ local test_SnpOnceFwd = env.register_test_case "test_SnpOnceFwd" {
 
             fork {
                 function ()
-                    if not is_dirty then
-                        env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(src_id) and chi_txrsp.bits.resp:is(exp_resp) end)
-                        chi_txrsp.bits.fwdState:expect(CHIResp.I)
-                    else
-                        env.expect_happen_until(20, function () 
-                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
-                                    chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(0) and 
-                                    chi_txdat.bits.data:is_hex_str(data_0) 
-                        end)
-                        chi_txdat.bits.fwdState:expect(CHIResp.I)
-                        env.expect_happen_until(20, function () 
-                            return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.SnpRespDataFwded) and chi_txdat.bits.txnID:is(txn_id) and 
-                                    chi_txdat.bits.tgtID:is(src_id) and chi_txdat.bits.resp:is(exp_resp) and chi_txdat.bits.dataID:is(2) and 
-                                    chi_txdat.bits.data:is_hex_str(data_1) 
-                        end)
-
-                        env.negedge(10)
-                            mshrs[0].io_status_valid:expect(0)
-                    end 
+                    env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpRespFwded) and chi_txrsp.bits.txnID:is(0x10) and chi_txrsp.bits.tgtID:is(src_id) end)
+                    chi_txrsp:dump()
+                    chi_txrsp.bits.resp:is(exp_resp); chi_txrsp.bits.fwdState:expect(CHIResp.I)
                 end,
 
                 function ()
