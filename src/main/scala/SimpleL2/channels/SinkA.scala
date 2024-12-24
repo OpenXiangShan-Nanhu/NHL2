@@ -99,7 +99,7 @@ class SinkA()(implicit p: Parameters) extends L2Module {
         val (_, _, offset) = parseAddress(io.a.bits.address)
 
         amoDataBufWr.valid           := io.a.fire && isAtomicReq
-        amoDataBufWr.bits.data       := io.a.bits.data
+        amoDataBufWr.bits.data       := io.a.bits.data(atomicDataBufferDataBits, 0)
         io.task.bits.amoBufIdOpt.get := amoDataBufWr.idx
         io.task.bits.offsetOpt.get   := offset
         io.task.bits.sizeOpt.get     := io.a.bits.size

@@ -3,10 +3,11 @@ package SimpleL2
 import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config._
+import freechips.rocketchip.util.MaskGen
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.tilelink.TLMessages._
 import freechips.rocketchip.tilelink.TLPermissions._
-import xs.utils.{ParallelPriorityMux}
+import xs.utils.ParallelPriorityMux
 import Utils.{GenerateVerilog, LeakChecker}
 import SimpleL2.chi._
 import SimpleL2.chi.CHIOpcodeREQ._
@@ -673,7 +674,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         )
     )
     mpTask_wbdata.bits.amoBufIdOpt.foreach(_ := req.amoBufIdOpt.get)
-    mpTask_wbdata.bits.maskOpt.foreach(_ := req.maskOpt.get)
+    mpTask_wbdata.bits.maskOpt.foreach(_ := MaskGen(Cat(req.tag, req.set, io.sliceId, req.offsetOpt.getOrElse(0.U)), req.sizeOpt.getOrElse(3.U), chiBundleParams.dataBits / 8))
     // CopyBackWrData can be in other state excpept Tip Dirty due to snoop nested.
     // assert(!(mpTask_wbdata.fire && meta.isBranch), "CopyBackWrData is only for Tip Dirty")
     assert(!(mpTask_wbdata.fire && mpTask_wbdata.bits.resp === Resp.I_PD), "CopyBackWrData should not be sent with the resp filed value of I_PD")

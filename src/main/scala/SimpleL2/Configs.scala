@@ -80,7 +80,7 @@ case class L2Param(
     // Atomic
     enableBypassAtomic: Boolean = true, // Bypass the received atomic transaction(TileLink) and send it to the next-level cache(CHI)
     nrAtomicDataBuffer: Int = 4,
-    atomicDataBufferDataBits: Int = 64 * 2 // TODO:
+    atomicDataBufferDataBits: Int = 64 // TODO: Consider CHI AtomicCompare
 ) {
     require(isPow2(ways))
     require(isPow2(sets))

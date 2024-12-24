@@ -20,7 +20,7 @@ import Utils.GenerateVerilog
 
 class SimpleL2CacheDecoupled(parentName: String = "L2_")(implicit p: Parameters) extends LazyModule with HasL2Param {
     val xfer   = TransferSizes(blockBytes, blockBytes)
-    val atom   = TransferSizes(1, beatBytes)
+    val atom   = TransferSizes(1, 8)
     val access = TransferSizes(1, blockBytes)
 
     val addressRange = Seq(l2param.addressSet)
@@ -34,8 +34,6 @@ class SimpleL2CacheDecoupled(parentName: String = "L2_")(implicit p: Parameters)
                 supportsArithmetic = atom,
                 supportsLogical = atom,
                 supportsGet = access,
-                supportsPutFull = access,
-                supportsPutPartial = access,
                 supportsHint = access,
                 fifoId = None
             )

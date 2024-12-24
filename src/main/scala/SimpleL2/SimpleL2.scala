@@ -87,7 +87,7 @@ class SimpleEndpointCHI()(implicit p: Parameters) extends L2Module {
 
 class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends LazyModule with HasL2Param {
     val xfer   = TransferSizes(blockBytes, blockBytes)
-    val atom   = TransferSizes(1, beatBytes)
+    val atom   = TransferSizes(1, 8)
     val access = TransferSizes(1, blockBytes)
 
     val addressRange = Seq(l2param.addressSet) // TODO: parameterize this
@@ -101,8 +101,6 @@ class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends 
                 supportsArithmetic = atom,
                 supportsLogical = atom,
                 supportsGet = access,
-                supportsPutFull = access,
-                supportsPutPartial = access,
                 supportsHint = access,
                 fifoId = None
             )
