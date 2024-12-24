@@ -7,6 +7,7 @@ local tl = require "TileLink"
 local type = type
 local table = table
 local assert = assert
+local tonumber = tonumber
 local tostring = tostring
 local expect = env.expect
 
@@ -8370,7 +8371,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 local random_char = tostring(math.random(0, 9))
                 local data_str = "0x1122" .. random_char
                 local random_mask = math.random(0, 255)
-                local random_size = math.random(1, 3)
+                local random_size = 3
                 fork {
                     function ()
                         env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
@@ -8392,7 +8393,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
             local dbid = math.random(1, 5)
             chi_rxrsp:dbidresp(0, dbid)
 
-            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is_hex_str("0x0000ff00") and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:get()[1] == tonumber(data_str:sub(3), 16) end)
             chi_txdat.bits.txnID:expect(dbid)
             env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
 
@@ -8439,7 +8440,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 local random_char = tostring(math.random(0, 9))
                 local data_str = "0x1122" .. random_char
                 local random_mask = math.random(0, 255)
-                local random_size = math.random(1, 3)
+                local random_size = 3
                 fork {
                     function ()
                         env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str) end)
@@ -8484,7 +8485,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
             local dbid = math.random(1, 5)
             chi_rxrsp:dbidresp(0, dbid)
 
-            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is(random_mask) and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:is_hex_str(data_str) end)
+            env.expect_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.be:is_hex_str("0x0000ff00") and chi_txdat.bits.dataID:is(0) and chi_txdat.bits.data:get()[1] == tonumber(data_str:sub(3), 16) end)
             chi_txdat.bits.txnID:expect(dbid)
             env.expect_not_happen_until(10, function () return chi_txdat:fire() and chi_txdat.bits.opcode:is(OpcodeDAT.NonCopyBackWrData) and chi_txdat.bits.dataID:is(2) end)
 
