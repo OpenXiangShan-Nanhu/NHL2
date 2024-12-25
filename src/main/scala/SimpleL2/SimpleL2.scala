@@ -101,6 +101,8 @@ class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends 
                 supportsArithmetic = atom,
                 supportsLogical = atom,
                 supportsGet = access,
+                supportsPutFull = TransferSizes(1, 8),
+                supportsPutPartial = TransferSizes(1, 8),
                 supportsHint = access,
                 fifoId = None
             )
