@@ -2515,7 +2515,8 @@ local test_snoop_unique = env.register_test_case "test_snoop_unique" {
         -- 
         do
             env.negedge(10)
-                write_dir(0x09, utils.uint_to_onehot(0), 0x00, MixedState.TC, ("0b00"):number())
+                local alias = 0x01
+                write_dir(0x09, utils.uint_to_onehot(0), 0x00, MixedState.TC, ("0b00"):number(), alias)
 
             local address = to_address(0x09, 0x00)
             local txn_id = 3
@@ -2525,7 +2526,7 @@ local test_snoop_unique = env.register_test_case "test_snoop_unique" {
             verilua "appendTasks" {
                 check_wb_dir = function ()
                     env.expect_happen_until(10, function ()
-                        return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0x00)
+                        return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0x00) and mp.io_dirWrite_s3_bits_meta_aliasOpt:is(alias)
                     end)
                 end
             }
@@ -2741,7 +2742,8 @@ local test_snoop_unique = env.register_test_case "test_snoop_unique" {
         --
         do
             env.negedge(10)
-                write_dir(0x09, utils.uint_to_onehot(0), 0x00, MixedState.BC, ("0b10"):number())
+                local alias = 0x01
+                write_dir(0x09, utils.uint_to_onehot(0), 0x00, MixedState.BC, ("0b10"):number(), alias)
 
             local address = to_address(0x09, 0x00)
             local txn_id = 3
@@ -2749,7 +2751,7 @@ local test_snoop_unique = env.register_test_case "test_snoop_unique" {
             env.negedge()
             chi_rxsnp:snpunique(address, txn_id, ret2src)
             env.expect_happen_until(10, function ()
-                return tl_b:fire()
+                return tl_b:fire() and tl_b.bits.data:get()[1] == bit.lshift(alias, 1)
             end)
                 tl_b:dump()
                 tl_b.bits.opcode:expect(TLOpcodeB.Probe)
@@ -2761,7 +2763,7 @@ local test_snoop_unique = env.register_test_case "test_snoop_unique" {
             verilua "appendTasks" {
                 check_wb_dir = function ()
                     env.expect_happen_until(20, function ()
-                        return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0x00)
+                        return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.I) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0x00) and mp.io_dirWrite_s3_bits_meta_aliasOpt:is(alias)
                     end)
                 end
             }
@@ -4847,7 +4849,6 @@ local test_snoop_nested_read = env.register_test_case "test_snoop_nested_read" {
                 tl_a:acquire_perm(to_address(0x01, 0x01), TLParam.NtoT, source)
             env.posedge()
                 env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeUnique) end)
-                chi_txreq:dump()
             
             chi_rxsnp:snpshared(to_address(0x01, 0x01), 3, 0)
             
@@ -4873,7 +4874,6 @@ local test_snoop_nested_read = env.register_test_case "test_snoop_nested_read" {
                 tl_a:acquire_perm(to_address(0x01, 0x01), TLParam.NtoT, source)
             env.posedge()
                 env.expect_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.MakeUnique) end)
-                chi_txreq:dump()
             
             chi_rxsnp:snpunique(to_address(0x01, 0x01), 3, 0)
 

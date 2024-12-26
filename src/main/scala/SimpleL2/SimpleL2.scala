@@ -512,6 +512,8 @@ object SimpleL2Cache extends App {
 object SimpleL2CacheFinal extends App {
     val nodeID = 12
 
+    xs.utils.Constantin.init(false)
+
     val config_256kb_8way_2slice_1core = new Config((_, _, _) => {
         case DebugOptionsKey => DebugOptions()
         case TLUserKey       => TLUserParams(aliasBits = 2, vaddrBits = 48)

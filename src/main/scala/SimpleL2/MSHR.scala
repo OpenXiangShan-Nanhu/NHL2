@@ -768,7 +768,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     mpTask_snpresp.bits.newMetaEntry := DirectoryMetaEntryNoTag(
         dirty = snprespFinalDirty,
         state = snprespFinalState,
-        alias = req.aliasOpt.getOrElse(0.U),
+        alias = dirResp.meta.aliasOpt.getOrElse(0.U),
         clientsOH = Mux(isSnpToB || isSnpOnceX || isSnpClean, meta.clientsOH, Fill(nrClients, false.B)),
         fromPrefetchOpt = Some(!isSnpToN && meta.fromPrefetchOpt.getOrElse(false.B))
     )
