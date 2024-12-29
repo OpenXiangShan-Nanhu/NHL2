@@ -39,6 +39,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
         val taskOut    = DecoupledIO(new TaskBundle)
         val replay_s4  = Flipped(ValidIO(new SnpBufReplay))
         val mshrStatus = Vec(nrMSHR, Input(new MshrStatus))
+        val snpCnt     = Output(UInt(log2Ceil(nrSnpBufEntry).W))
     })
 
     val issueArb = Module(new FastArbiter(new TaskBundle, nrSnpBufEntry))
@@ -94,7 +95,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
                 }
             }
 
-            val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp && !s.isAtomicOpt.getOrElse(false.B) && !s.isCMOOpt.getOrElse(false.B) }).asUInt
+            val addrConflictVec = VecInit(io.mshrStatus.map { s => s.valid && s.set === buf.task.set && s.reqTag === buf.task.tag && s.hasPendingRefill && s.gotCompResp && s.w_evict_comp && s.w_compdbid && !s.isAtomicOpt.getOrElse(false.B) && !s.isCMOOpt.getOrElse(false.B) }).asUInt
 
             // Update the ready signal for this buffer based on conflict checks
             buf.ready := !addrConflictVec.orR
@@ -159,6 +160,8 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
     } else {
         io.taskOut <> taskOut
     }
+
+    io.snpCnt := PopCount(VecInit(buffers.map(_.state =/= SnpBufState.INVALID)).asUInt)
 
     buffers.zipWithIndex.foreach { case (buf, i) =>
         LeakChecker(buf.state =/= SnpBufState.INVALID, buf.state === SnpBufState.INVALID, Some(s"buffers_valid_${i}"), maxCount = deadlockThreshold)

@@ -183,14 +183,14 @@ end
 local function expect_happen_until(limit_cycles, func)
     assert(type(limit_cycles) == "number")
     assert(type(func) == "function")
-    local ok = dut.clock:posedge_until(limit_cycles, func)
+    local ok = clock:posedge_until(limit_cycles, func)
     assert(ok)
 end
 
 local function expect_not_happen_until(limit_cycles, func)
     assert(type(limit_cycles) == "number")
     assert(type(func) == "function")
-    local ok = dut.clock:posedge_until(limit_cycles, func)
+    local ok = clock:posedge_until(limit_cycles, func)
     assert(not ok)
 end
 

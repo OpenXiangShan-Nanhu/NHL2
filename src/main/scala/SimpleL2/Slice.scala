@@ -146,6 +146,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
     reqArb.io.nonDataRespCnt           := sourceD.io.nonDataRespCntSinkC
     reqArb.io.mshrStatus               <> missHandler.io.mshrStatus
     reqArb.io.bufferStatus             := sourceD.io.bufferStatus
+    reqArb.io.snpCnt                   := snpBuf.io.snpCnt
     reqArb.io.fromSinkC.willWriteDS_s1 := sinkC.io.toReqArb.willWriteDS_s1
     reqArb.io.fromSinkC.willWriteDS_s2 := sinkC.io.toReqArb.willWriteDS_s2
 

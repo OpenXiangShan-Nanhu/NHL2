@@ -38,6 +38,7 @@ class TaskBundle(implicit p: Parameters) extends L2Bundle {
     val snpHitWriteBack = Bool() // for Snoop nested MSHR
     val snpGotDirty     = Bool() // for Snoop nested MSHR
     val snpHitReq       = Bool()
+    val snpDirHit       = Bool()
     val snpHitMshrId    = UInt(mshrBits.W)
 
     val getSnpNestedReq_opt = if (optParam.mshrStallOnReqArb) None else Some(Bool())
@@ -59,11 +60,12 @@ class TaskBundle(implicit p: Parameters) extends L2Bundle {
     val sizeOpt        = if (enableBypassAtomic) Some(UInt(log2Ceil(blockBytes).W)) else None
     val isAtomicAckOpt = if (enableBypassAtomic) Some(Bool()) else None
 
-    def resp = param             // alias to opcode, if isCHIOpcode is true
-    def txnID = source           // alias to source, if isCHIOpcode is true
-    def chiOpcode = opcode       // alias to opcode, if isCHIOpcode is true
-    def mshrId = sink            // alias to sink, if isMshrTask is true
-    def isReplTask = isAliasTask // alias to isAliasTask, if isMshrTask is true
+    def resp = param                // alias to opcode, if isCHIOpcode is true
+    def txnID = source              // alias to source, if isCHIOpcode is true
+    def chiOpcode = opcode          // alias to opcode, if isCHIOpcode is true
+    def mshrId = sink               // alias to sink, if isMshrTask is true
+    def isReplTask = isAliasTask    // alias to isAliasTask, if isMshrTask is true
+    def snpReplayTask = isAliasTask // alias to isAliasTask, if isCHIOpcode is true and is isMshrTask is false
 
     def isSnoop = channel === L2Channel.ChannelB && !isMshrTask
     def isChannelA = channel.asUInt(0) && !isMshrTask
