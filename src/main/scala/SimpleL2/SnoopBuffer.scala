@@ -39,7 +39,7 @@ class SnoopBuffer()(implicit p: Parameters) extends L2Module {
         val taskOut    = DecoupledIO(new TaskBundle)
         val replay_s4  = Flipped(ValidIO(new SnpBufReplay))
         val mshrStatus = Vec(nrMSHR, Input(new MshrStatus))
-        val snpCnt     = Output(UInt(log2Ceil(nrSnpBufEntry).W))
+        val snpCnt     = Output(UInt((log2Ceil(nrSnpBufEntry) + 1).W))
     })
 
     val issueArb = Module(new FastArbiter(new TaskBundle, nrSnpBufEntry))

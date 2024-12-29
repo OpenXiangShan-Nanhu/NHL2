@@ -1615,7 +1615,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             //  If a pending request to the same cache line is present at the RN-F and the pending request has received at least one Data response packet or a RespSepData response:
             //      - The RN-F must wait to receive all Data response packets before responding to the Snoop request.
             //      - Snoop should be processed normally after receiving all Data response packets.
-            !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first || !state.s_cbwrdata || !state.w_evict_comp
+            !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first
         )
     } || reqIsAtomic && dirResp.hit || reqIsCMO
     io.status.hasPendingRefill := hasPendingRefill // Used by SnoopBuffer only

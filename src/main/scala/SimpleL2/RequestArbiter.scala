@@ -58,7 +58,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val status = Output(new MpStatus123) // Output status signals for RequestArbiterV2 (Stage 1, Stage 2, Stage 3)
 
         val mshrStatus         = Vec(nrMSHR, Input(new MshrStatus))
-        val snpCnt             = Input(UInt(log2Ceil(nrSnpBufEntry).W))
+        val snpCnt             = Input(UInt((log2Ceil(nrSnpBufEntry) + 1).W))
         val replayFreeCntSinkA = Input(UInt((log2Ceil(nrReplayEntrySinkA) + 1).W))
         val nonDataRespCnt     = Input(UInt((log2Ceil(nrNonDataSourceDEntry) + 1).W))
         val mpStatus_s45678    = Input(new MpStatus45678)
