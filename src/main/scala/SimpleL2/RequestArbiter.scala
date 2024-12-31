@@ -58,6 +58,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         val status = Output(new MpStatus123) // Output status signals for RequestArbiterV2 (Stage 1, Stage 2, Stage 3)
 
         val mshrStatus         = Vec(nrMSHR, Input(new MshrStatus))
+        val snpCnt             = Input(UInt((log2Ceil(nrSnpBufEntry) + 1).W))
         val replayFreeCntSinkA = Input(UInt((log2Ceil(nrReplayEntrySinkA) + 1).W))
         val nonDataRespCnt     = Input(UInt((log2Ceil(nrNonDataSourceDEntry) + 1).W))
         val mpStatus_s45678    = Input(new MpStatus45678)
@@ -256,6 +257,13 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         matchVec
     }
 
+    def snpDirHit(set: UInt, tag: UInt): UInt = {
+        val matchVec = VecInit(io.mshrStatus.map { s =>
+            s.valid && s.set === set && s.reqTag === tag && s.dirHit
+        }).asUInt
+        matchVec
+    }
+
     /**
      * After MSHR receives the first beat of CompData, and before L2 receives GrantAck from L1, snoop of X should be **blocked**, 
      * because a slave should not issue a Probe if there is a pending GrantAck on the block according to TileLink spec.
@@ -264,6 +272,21 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     val mshrBlockSnpVec_forSnoop = mshrBlockSnp(taskSnoop_s1.set, taskSnoop_s1.tag)
     val setConflict_forSnoop     = setConflict("B", io.taskSnoop_s1.bits.set, io.taskSnoop_s1.bits.tag)
     val blockB_mayReadDS         = mayReadDS_s2 || willWriteDS_s2 || Mux(latchTempDsToDs.B, willRefillDS_s2e || willRefillDS_s2, willRefillDS_s2)
+
+    val blockB_cnt   = RegInit(0.U(log2Ceil(snpReplayThreshold).W))
+    val snpReplay_s1 = RegInit(false.B)
+
+    when(io.taskSnoop_s1.valid && !io.taskSnoop_s1.ready) {
+        blockB_cnt := blockB_cnt + 1.U
+    }.elsewhen(io.taskSnoop_s1.fire) {
+        blockB_cnt := 0.U
+    }
+
+    when(io.taskSnoop_s1.fire) {
+        snpReplay_s1 := false.B
+    }.elsewhen(blockB_cnt >= snpReplayThreshold.U && io.snpCnt =/= 0.U) {
+        snpReplay_s1 := true.B
+    }
 
     blockB_s1 := reqBlockSnpVec_forSnoop.orR || mshrBlockSnpVec_forSnoop.orR || blockB_mayReadDS || io.fromSinkC.willWriteDS_s1 || setConflict_forSnoop
 
@@ -293,15 +316,17 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     val snpHitWriteBackVec_s1      = snpHitWriteBack(taskSnoop_s1.set, taskSnoop_s1.tag)
     val snpGotDirtyVec_s1          = snpGotDirty(taskSnoop_s1.set, taskSnoop_s1.tag)
     val snpHitReqVec_s1            = snpHitReq(taskSnoop_s1.set, taskSnoop_s1.tag)
+    val snpDirHitVec_s1            = snpDirHit(taskSnoop_s1.set, taskSnoop_s1.tag)
     stallOnPendingSnpHitReq_s2        := hasPendingSnpHitReq_s2_dup && snpHitReqVec_s1.orR
     arbTaskSnoop_dup_s1               := arbTaskSnoop
     arbTaskSnoop.bits.snpHitWriteBack := snpHitWriteBackVec_s1.orR
     arbTaskSnoop.bits.snpGotDirty     := snpGotDirtyVec_s1.orR // available when snpHitReq is asserted
     arbTaskSnoop.bits.snpHitReq       := snpHitReqVec_s1.orR
     arbTaskSnoop.bits.snpHitMshrId    := OHToUInt(snpHitReqVec_s1)
+    arbTaskSnoop.bits.snpDirHit       := snpDirHitVec_s1.orR
     arbTaskSnoop.bits.readTempDs      := Mux1H(snpHitReqVec_s1, io.mshrStatus.map(_.gotDirtyData)) || taskSnoop_s1.retToSrc && !CHIOpcodeSNP.isSnpXFwd(taskSnoop_s1.opcode)
-    arbTaskSnoop.valid                := io.taskSnoop_s1.valid && !blockB_s1 && Mux(arbTaskSnoop.bits.readTempDs, io.tempDsRead_s1.ready, true.B) && !stallOnPendingSnpHitReq_s2
-    io.taskSnoop_s1.ready             := arbTaskSnoop.ready && !blockB_s1 && Mux(arbTaskSnoop.bits.readTempDs, io.tempDsRead_s1.ready, true.B) && !stallOnPendingSnpHitReq_s2
+    arbTaskSnoop.valid                := io.taskSnoop_s1.valid && !blockB_s1 && Mux(arbTaskSnoop.bits.readTempDs, io.tempDsRead_s1.ready, true.B) && !stallOnPendingSnpHitReq_s2 || io.taskSnoop_s1.valid && snpReplay_s1
+    io.taskSnoop_s1.ready             := arbTaskSnoop.ready && !blockB_s1 && Mux(arbTaskSnoop.bits.readTempDs, io.tempDsRead_s1.ready, true.B) && !stallOnPendingSnpHitReq_s2 || arbTaskSnoop.ready && snpReplay_s1
     when(io.taskSnoop_s1.fire) {
         assert(!(arbTaskSnoop.valid && arbTaskSnoop.bits.snpHitWriteBack && arbTaskSnoop.bits.snpHitReq), "snpHitWriteBack and snpHitReq should not be both true")
         assert(PopCount(snpHitWriteBackVec_s1) <= 1.U, "snpHitWriteBackVec_s1: %b", snpHitWriteBackVec_s1)
@@ -360,7 +385,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     valid_s1                   := chnlTask_s1.valid || mshrTaskFull_s1
     fire_s1                    := mshrTaskFull_s1 && mshrTaskReady_s1 || chnlTask_s1.fire || { if (hasLowPowerInterface) io.lowPowerTaskOpt_s1.get.fire else false.B }
 
-    io.dirRead_s1.valid               := fire_s1 && (!task_s1.isMshrTask || isLowPowerTask_s1 || task_s1.isMshrTask && task_s1.isReplTask) && !task_s1.snpHitReq
+    io.dirRead_s1.valid               := fire_s1 && (!task_s1.isMshrTask && Mux(task_s1.isChannelB, !task_s1.snpHitReq && !snpReplay_s1, true.B) || isLowPowerTask_s1 || task_s1.isMshrTask && task_s1.isReplTask)
     io.dirRead_s1.bits.set            := Mux(isLowPowerTask_s1, lowPowerTask_s1.set, task_s1.set)
     io.dirRead_s1.bits.tag            := task_s1.tag
     io.dirRead_s1.bits.mshrId         := task_s1.mshrId
@@ -369,7 +394,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     io.dirRead_s1.bits.isLowPowerReqOpt.foreach(_ := isLowPowerTask_s1)
     io.dirRead_s1.bits.wayOHOpt.foreach(_ := task_s1.wayOH)
 
-    io.tempDsRead_s1.valid     := mshrTaskFull_s1 && mshrTaskReady_s1 && mshrTask_s1.readTempDs || arbTaskSnoop.bits.snpHitReq && arbTaskSnoop.bits.readTempDs && io.taskSnoop_s1.fire
+    io.tempDsRead_s1.valid     := mshrTaskFull_s1 && mshrTaskReady_s1 && mshrTask_s1.readTempDs || arbTaskSnoop.bits.snpHitReq && arbTaskSnoop.bits.snpDirHit && arbTaskSnoop.bits.readTempDs && io.taskSnoop_s1.fire && !snpReplay_s1
     io.tempDsRead_s1.bits.idx  := Mux(arbTaskSnoop.bits.snpHitReq && !mshrTaskFull_s1, arbTaskSnoop.bits.snpHitMshrId, mshrTask_s1.mshrId)
     io.tempDsRead_s1.bits.dest := Mux(arbTaskSnoop.bits.snpHitReq && !mshrTaskFull_s1, DataDestination.TXDAT, mshrTask_s1.tempDsDest)
     io.dsWrSet_s1              := task_s1.set
@@ -390,7 +415,7 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
     val fire_s2           = WireInit(false.B)
     val tempDsToDs_s2     = (task_s2.tempDsDest & DataDestination.DataStorage).orR && task_s2.isMshrTask && task_s2.readTempDs
     val mayReadDS_a_s2    = task_s2.isChannelA && (task_s2.opcode === AcquireBlock || task_s2.opcode === Get || task_s2.opcode === AcquirePerm /* AcqurirePerm and hit may read DS data into TempDS */ )
-    val mayReadDS_b_s2    = task_s2.isChannelB /* TODO: filter snoop opcode, some opcode does not need Data */
+    val mayReadDS_b_s2    = task_s2.isChannelB && !task_s2.snpReplayTask /* TODO: filter snoop opcode, some opcode does not need Data */
     val mayReadDS_mshr_s2 = task_s2.isMshrTask && !task_s2.readTempDs && !task_s2.isReplTask && (task_s2.channel === CHIChannel.TXDAT || (!task_s2.isCHIOpcode && (task_s2.opcode === GrantData || task_s2.opcode === AccessAckData)))
 
     if (!optParam.mshrStallOnReqArb) {
@@ -438,6 +463,14 @@ class RequestArbiter()(implicit p: Parameters) extends L2Module {
         valid_s2     := true.B
         task_s2      := task_s1
         snpHitReq_s2 := task_s1.snpHitReq && task_s1.isChannelB
+
+        when(snpReplay_s1 && task_s1.isChannelB) {
+            task_s2.snpReplayTask   := true.B
+            task_s2.snpHitReq       := false.B
+            task_s2.snpHitWriteBack := false.B
+            task_s2.snpDirHit       := false.B
+            task_s2.readTempDs      := false.B
+        }
     }.elsewhen(fire_s2 && valid_s2) {
         valid_s2 := false.B
     }

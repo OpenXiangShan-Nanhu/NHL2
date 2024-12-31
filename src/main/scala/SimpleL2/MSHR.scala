@@ -265,6 +265,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val probeGotDirty       = RegInit(false.B)
     val snpGotDirty         = RegInit(false.B)                                                                                                // for reallocation
     val snpHitWriteBack     = RegInit(false.B)
+    val noFwd               = RegInit(false.B)
     val probeAckParams      = RegInit(VecInit(Seq.fill(nrClients)(0.U.asTypeOf(chiselTypeOf(io.resps.sinkc.bits.param)))))
     val probeAckClients     = RegInit(0.U(nrClients.W))
     val probeFinish         = WireInit(false.B)
@@ -343,8 +344,14 @@ class MSHR()(implicit p: Parameters) extends L2Module {
 
         state.s_snpresp      := allocState.s_snpresp
         state.w_snpresp_sent := allocState.w_snpresp_sent
-        state.s_compdat      := allocState.s_compdat
-        state.w_compdat_sent := allocState.w_compdat_sent
+
+        when(dirResp.hit) {
+            noFwd                := false.B
+            state.s_compdat      := allocState.s_compdat
+            state.w_compdat_sent := allocState.w_compdat_sent
+        }.otherwise {
+            noFwd := true.B
+        }
 
         req.fwdNID_opt.foreach(_ := io.alloc_s3.bits.req.fwdNID_opt.getOrElse(0.U))
         req.fwdTxnID_opt.foreach(_ := io.alloc_s3.bits.req.fwdTxnID_opt.getOrElse(0.U))
@@ -730,19 +737,19 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val snpTxnID          = Mux(isRealloc, reallocTxnID, req.txnID)
     val snpOpcode         = Mux(isRealloc, reallocOpcode, req.opcode)
     val snpRetToSrc       = Mux(isRealloc, reallocRetToSrc, req.retToSrc)
-    val isSnpFwd          = CHIOpcodeSNP.isSnpXFwd(snpOpcode) && supportDCT.B
-    val isSnpOnceX        = CHIOpcodeSNP.isSnpOnceX(snpOpcode)
     val isSnpMakeInvalidX = CHIOpcodeSNP.isSnpMakeInvalidX(snpOpcode)
     val isSnpToB          = CHIOpcodeSNP.isSnpToB(snpOpcode)
     val isSnpToN          = CHIOpcodeSNP.isSnpToN(snpOpcode)
     val isSnpUniqueX      = CHIOpcodeSNP.isSnpUniqueX(snpOpcode)
+    val isSnpFwd          = CHIOpcodeSNP.isSnpXFwd(snpOpcode) && Mux(isRealloc, !noFwd, true.B) && supportDCT.B
+    val isSnpOnceX        = CHIOpcodeSNP.isSnpOnceX(snpOpcode)
     val isSnpClean        = CHIOpcodeSNP.isSnpCleanShared(snpOpcode)
     val snprespPassDirty  = Mux(isSnpFwd && (isSnpUniqueX || isSnpOnceX), false.B, !isSnpOnceX && !isSnpMakeInvalidX && (meta.isDirty || gotDirty) || (isRealloc || isSnpFwd) && snpGotDirty) // snpGotDirty is TRUE when fwd snoop nested writeback mshr
     val snprespFinalDirty = isSnpOnceX && (meta.isDirty || probeGotDirty)
-    val snprespFinalState = Mux(isSnpOnceX, Mux(needProbe && meta.isTrunk, TIP, meta.rawState), Mux(isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID)))
+    val snprespFinalState = Mux(isSnpOnceX, Mux(needProbe && meta.isTrunk, TIP, Mux(dirResp.hit, meta.rawState, INVALID)), Mux(isSnpClean, meta.rawState, Mux(isSnpToB, BRANCH, INVALID)))
     val snprespNeedData = Mux(
         isRealloc,
-        snpGotDirty || snpRetToSrc,
+        !noFwd && (snpGotDirty || snpRetToSrc),
         ((gotDirty || probeGotDirty || meta.isDirty) && !(isSnpFwd && isSnpOnceX) || gotRefilledData /* gotRefilledData is for SnpHitReq and need mshr realloc */ ) && snpOpcode =/= SnpUniqueFwd || snpRetToSrc
     ) && !isSnpMakeInvalidX
     val hasValidProbeAck = VecInit(probeAckParams.zip(meta.clientsOH.asBools).map { case (probeAck, en) => en && probeAck =/= NtoN }).asUInt.orR
@@ -760,7 +767,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
         Mux(isSnpOnceX && isSnpFwd, DataDestination.DataStorage, DataDestination.TXDAT | DataDestination.DataStorage),
         DataDestination.TXDAT
     )
-    mpTask_snpresp.bits.updateDir := hasValidProbeAck && !isRealloc && Mux(
+    mpTask_snpresp.bits.updateDir := hasValidProbeAck && Mux(
         isSnpClean,
         probeGotDirty || dirResp.meta.isDirty,
         true.B
@@ -776,7 +783,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     assert(!(valid && snprespPassDirty && snprespFinalDirty))
     assert(!(isSnpFwd && req.isChannelB && !dirResp.hit), "Snp[*]Fwd must hit!")
 
-    mpTask_repl.valid           := !state.s_repl && !state.w_replResp && state.s_read && state.s_makeunique && state.w_comp && state.w_compdat && state.s_compack
+    mpTask_repl.valid           := !state.s_repl && !state.w_replResp && state.s_snpresp && state.s_read && state.s_makeunique && state.w_comp && state.w_compdat && state.s_compack
     mpTask_repl.bits.isReplTask := true.B
     mpTask_repl.bits.readTempDs := false.B
     mpTask_repl.bits.updateDir  := false.B
@@ -1581,7 +1588,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
     val tempDsWriteCnt    = RegInit(0.U(3.W))
     val tempDsWriteFinish = tempDsWriteCnt >= 3.U
     tempDsWriteFinish_dup := tempDsWriteFinish
-    when(io.alloc_s3.fire) {
+    when(io.alloc_s3.fire && !io.alloc_s3.bits.realloc) {
         tempDsWriteCnt := 0.U
     }.elsewhen(tempDsWriteCnt <= 3.U) {
         tempDsWriteCnt := tempDsWriteCnt + 1.U
@@ -1608,7 +1615,7 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             //  If a pending request to the same cache line is present at the RN-F and the pending request has received at least one Data response packet or a RespSepData response:
             //      - The RN-F must wait to receive all Data response packets before responding to the Snoop request.
             //      - Snoop should be processed normally after receiving all Data response packets.
-            !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first || !state.s_cbwrdata || !state.w_evict_comp
+            !state.w_comp || !state.w_compdat_first || !state.w_datasepresp_first
         )
     } || reqIsAtomic && dirResp.hit || reqIsCMO
     io.status.hasPendingRefill := hasPendingRefill // Used by SnoopBuffer only

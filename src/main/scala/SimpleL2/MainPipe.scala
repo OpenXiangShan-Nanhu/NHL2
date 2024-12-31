@@ -122,7 +122,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val isSnpFwd_s2    = CHIOpcodeSNP.isSnpXFwd(task_s2.opcode) && task_s2.isChannelB && supportDCT.B
     val isMshrTXDAT_s2 = task_s2.isMshrTask && !task_s2.isReplTask && task_s2.isCHIOpcode && (task_s2.readTempDs || task_s2.opcode === NonCopyBackWrData /* For Atomic transaction */ ) && task_s2.channel === CHIChannel.TXDAT
     val isCompData_s2  = isMshrTXDAT_s2 && task_s2.opcode === CompData && supportDCT.B
-    val isTXDAT_s2     = task_s2.isChannelB && task_s2.readTempDs && task_s2.snpHitReq && !isSnpFwd_s2
+    val isTXDAT_s2     = task_s2.isChannelB && task_s2.readTempDs && task_s2.snpHitReq && task_s2.snpDirHit && !isSnpFwd_s2
     val snpNeedMshr_s2 = isTXDAT_s2 && io.txdat_s2.valid && !io.txdat_s2.ready // If txdat is not ready, we should let this req enter mshr, the mshrId is task_s2.snpHitMshrId
     val txdat_s2       = WireInit(0.U.asTypeOf(Valid(new CHIBundleDAT(chiBundleParams))))
     if (enableDataECC) {
@@ -256,7 +256,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val hit_s3         = dirResp_s3.hit && io.dirResp_s3.valid // && !isSnpHitReq_s3 // hit is invalid for snpHitReq request
     val meta_s3        = dirResp_s3.meta
     val state_s3       = meta_s3.state
-    assert(!(valid_s3 && !task_s3.isMshrTask && !task_s3.snpHitReq && !io.dirResp_s3.fire), "Directory response should be valid!")
+    assert(!(valid_s3 && !task_s3.isMshrTask && !task_s3.snpHitReq && !task_s3.snpReplayTask && !io.dirResp_s3.fire), "Directory response should be valid!")
 
     val snpNeedMshr_s3        = if (enableDataECC) snpNeedMshr_s2e else RegEnable(snpNeedMshr_s2, valid_s2)
     val reqNeedT_s3           = needT(task_s3.opcode, task_s3.param)
@@ -305,15 +305,17 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
     val needProbeOnMiss_a_s3 = task_s3.isChannelA && !hit_s3 && meta_s3.clientsOH.orR
     val needProbe_a_s3       = task_s3.isChannelA && (hit_s3 && needProbeOnHit_a_s3 || !hit_s3 && needProbeOnMiss_a_s3)
 
+    // @formatter:off
     val needProbe_snpOnceX_s3 = CHIOpcodeSNP.isSnpOnceX(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
     val needProbe_snpToB_s3   = CHIOpcodeSNP.isSnpToB(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
     val needProbe_snpToN_s3   = (CHIOpcodeSNP.isSnpUniqueX(task_s3.opcode) || CHIOpcodeSNP.isSnpMakeInvalidX(task_s3.opcode) || task_s3.opcode === SnpCleanInvalid) && dirResp_s3.hit && meta_s3.clientsOH.orR
     val needProbe_snpClean_s3 = CHIOpcodeSNP.isSnpCleanShared(task_s3.opcode) && dirResp_s3.hit && meta_s3.isTrunk
-    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3 || needProbe_snpClean_s3) && !task_s3.snpHitWriteBack // snpHitWriteBack does not require to probe since the probe is done by the mshr which trigger the writeback
+    val needProbe_b_s3        = task_s3.isChannelB && hit_s3 && (needProbe_snpOnceX_s3 || needProbe_snpToB_s3 || needProbe_snpToN_s3 || needProbe_snpClean_s3) && !task_s3.snpHitWriteBack && !task_s3.snpReplayTask // snpHitWriteBack does not require to probe since the probe is done by the mshr which trigger the writeback
     val needDCT_s3            = isFwdSnoop_s3 && hit_s3 && supportDCT.B
+    // @formatter:on
 
     val canAllocMshr_s3 = !task_s3.isMshrTask && valid_s3
-    val mshrRealloc_s3  = (snpNeedMshr_s3 || isFwdSnoop_s3) && task_s3.snpHitReq && canAllocMshr_s3
+    val mshrRealloc_s3  = (snpNeedMshr_s3 || isFwdSnoop_s3) && task_s3.snpHitReq && task_s3.snpDirHit && canAllocMshr_s3
     val mshrAlloc_a_s3  = (needReadDownward_a_s3 || needProbe_a_s3 || cacheAlias_s3 || isAtomic_s3 || isCMO_s3) && canAllocMshr_s3
     val mshrAlloc_b_s3  = ((needProbe_b_s3 && !task_s3.snpHitWriteBack && !task_s3.snpHitReq) || needDCT_s3) && canAllocMshr_s3 // if snoop hit mshr that is scheduling writeback(MSHR_A), we should not update directory since MSHR_A will overwrite the whole cacheline
     val mshrAlloc_c_s3  = false.B                                                                                               // for inclusive cache, Release/ReleaseData always hit
@@ -528,8 +530,8 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
         (meta_s3.isDirty || task_s3.retToSrc || !task_s3.retToSrc && meta_s3.isDirty || task_s3.snpGotDirty) && !CHIOpcodeSNP.isSnpMakeInvalidX(task_s3.opcode)
     )
     val snpNeedData_mshr_s3 = mpTask_snpresp_s3 && !task_s3.readTempDs && task_s3.channel === CHIChannel.TXDAT
-    val snpChnlReqOK_s3     = !task_s3.isMshrTask && !(task_s3.snpHitReq && task_s3.readTempDs) && isSnoop_s3 && task_s3.isChannelB && !mshrAlloc_b_s3 && !mshrRealloc_s3 && valid_s3 // Can ack snoop request without allocating MSHR, Snoop miss did not need mshr, response with SnpResp_I
-    val snpReplay_s3        = task_s3.isChannelB && !mshrAlloc_b_s3 && (!snpNeedData_b_s3 && txrspWillFull_s3 || snpNeedData_b_s3 && !hasValidDataBuf_s7s8) && valid_s3
+    val snpChnlReqOK_s3     = !task_s3.isMshrTask && task_s3.isChannelB && !(task_s3.snpHitReq && task_s3.readTempDs && task_s3.snpDirHit) && !mshrAlloc_b_s3 && !mshrRealloc_s3 && valid_s3 // Can ack snoop request without allocating MSHR, Snoop miss did not need mshr, response with SnpResp_I
+    val snpReplay_s3        = task_s3.isChannelB && !mshrAlloc_b_s3 && (!snpNeedData_b_s3 && txrspWillFull_s3 || snpNeedData_b_s3 && !hasValidDataBuf_s7s8 || task_s3.snpReplayTask) && valid_s3
     val snpRetry_s3         = task_s3.isMshrTask && snpNeedData_mshr_s3 && !hasValidDataBuf_s7s8 && valid_s3
     snpReplay_dup_s3 := snpReplay_s3
 
@@ -773,7 +775,7 @@ class MainPipe()(implicit p: Parameters) extends L2Module with HasPerfLogging {
             task_s3.resp,
             Mux(
                 task_s3.snpHitReq,
-                Mux(isSnpToN_s3, Resp.I, Resp.SC),
+                Mux(isSnpToN_s3 || !task_s3.snpDirHit, Resp.I, Resp.SC),
                 Resp.setPassDirty(
                     Mux(
                         !dirResp_s3.hit,

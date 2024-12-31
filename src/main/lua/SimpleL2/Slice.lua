@@ -69,6 +69,8 @@ local low_power_req = dut:with_prefix("io_lowPowerOpt_req_")
 local low_power_resp = dut:with_prefix("io_lowPowerOpt_resp_")
 local low_power_state = lowPowerCtrl.powerState
 
+local mshrAlloc = mp:with_prefix("io_mshrAlloc_s3_")
+
 local PowerState = utils.enum_define {
     name = "PowerState",
     ACTIVE = 0,
@@ -4995,6 +4997,110 @@ local test_snoop_nested_read = env.register_test_case "test_snoop_nested_read" {
         do_snp_nest_acquire_perm(0)
         do_snp_nest_acquire_perm(1)
 
+        -- Snp* nested read on I
+        local test = function (opcode, ret2src)
+            printf("%s nested read on I, ret2src: %d\n", OpcodeSNP(opcode), ret2src)
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.I)
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, 0)
+            env.expect_happen_until(10, function () return chi_txreq:fire() end)
+            env.negedge()
+                chi_rxsnp.bits.txnID:set(3)
+                chi_rxsnp.bits.addr:set(bit.rshift(to_address(0x01, 0x05), 3), true)
+                chi_rxsnp.bits.opcode:set(opcode)
+                chi_rxsnp.bits.retToSrc:set(ret2src)
+                chi_rxsnp.valid:set(1)
+            env.negedge()
+                chi_rxsnp.valid:set(0)
+            fork {
+                function ()
+                    env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+                end,
+                function ()
+                    env.expect_not_happen_until(50, function () return chi_txdat:fire() end)
+                end,
+            }
+            
+            env.negedge(100)
+            chi_rxdat:compdat(0, "0xaabb", "0xccdd", 0, CHIResp.UC)
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.TTC) end)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xaabb") end)
+                    env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xccdd") end)
+                    tl_e:grantack(0)
+                end
+            }
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
+
+            env.negedge(100)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test(OpcodeSNP.SnpOnce, 0)
+        test(OpcodeSNP.SnpOnce, 1)
+        test(OpcodeSNP.SnpCleanInvalid, 0)
+        test(OpcodeSNP.SnpCleanShared, 0)
+        test(OpcodeSNP.SnpUnique, 0)
+        test(OpcodeSNP.SnpUnique, 1)
+        test(OpcodeSNP.SnpNotSharedDirty, 0)
+        test(OpcodeSNP.SnpNotSharedDirty, 1)
+        test(OpcodeSNP.SnpShared, 0)
+        test(OpcodeSNP.SnpShared, 1)
+
+        -- Snp*Fwd nested read on I
+        local test = function (opcode, ret2src)
+            printf("%s nested read on I, ret2src: %d\n", OpcodeSNP(opcode), ret2src)
+            env.negedge()
+                write_dir(0x01, ("0b0001"):number(), 0x05, MixedState.I)
+            env.negedge()
+                tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, 0)
+            env.expect_happen_until(10, function () return chi_txreq:fire() end)
+            env.negedge()
+                local src_id = 4
+                local txn_id = 3
+                local fwd_nid = 1
+                local fwd_txn_id = 2
+                local do_not_go_to_sd = 0
+                chi_rxsnp:send_fwd_request(to_address(0x01, 0x05), OpcodeSNP.SnpOnceFwd, src_id, txn_id, false, fwd_nid, fwd_txn_id, do_not_go_to_sd)
+            fork {
+                function ()
+                    env.expect_happen_until(20, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp) and chi_txrsp.bits.resp:is(CHIResp.I) end)
+                end,
+                function ()
+                    env.expect_not_happen_until(50, function () return chi_txdat:fire() end)
+                end,
+            }
+            
+            env.negedge(100)
+            chi_rxdat:compdat(0, "0xaabb", "0xccdd", 0, CHIResp.UC)
+
+            fork {
+                function ()
+                    env.expect_happen_until(10, function () return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.TTC) end)
+                end,
+                function ()
+                    env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xaabb") end)
+                    env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xccdd") end)
+                    tl_e:grantack(0)
+                end
+            }
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) end)
+
+            env.negedge(100)
+            mshrs[0].io_status_valid:expect(0)
+        end
+        test(OpcodeSNP.SnpOnceFwd, 0)
+        test(OpcodeSNP.SnpUniqueFwd, 0)
+        test(OpcodeSNP.SnpUniqueFwd, 1)
+        test(OpcodeSNP.SnpSharedFwd, 0)
+        test(OpcodeSNP.SnpSharedFwd, 1)
+        test(OpcodeSNP.SnpNotSharedDirtyFwd, 0)
+        test(OpcodeSNP.SnpNotSharedDirtyFwd, 1)
+
         env.posedge(100)
     end
 }
@@ -8931,6 +9037,49 @@ local test_cmo_request = env.register_test_case "test_cmo_request" {
     end
 }
 
+local test_snoop_stall_and_replay = env.register_test_case "test_snoop_stall_and_replay" {
+    function ()
+        env.dut_reset()
+        resetFinish:posedge()
+
+        tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
+
+        do
+            local address = to_address(0x01, 0x01)
+
+            env.negedge()
+                write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.I, 0)
+            tl_a:acquire_block(address, TLParam.NtoT, 0)
+            env.expect_happen_until(10, function () return chi_txreq:fire() end)
+
+            reqArb.snpReplay_s1:set_force(1)
+            env.negedge()
+                chi_rxsnp.bits.addr:set(bit.rshift(address, 3), true)
+                chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpCleanInvalid)
+                chi_rxsnp.valid:set(1)
+                env.posedge()
+                chi_rxsnp.ready:expect(1)
+            env.negedge()
+                chi_rxsnp.valid:set(0)
+
+            fork {
+                function ()
+                    env.expect_not_happen_until(10, function () return mp.io_dirResp_s3_valid:is(1) end)
+                end
+            }
+            env.expect_happen_until(20, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(2) and mp.task_s3_isAliasTask:is(1) end)
+            reqArb.snpReplay_s1:set_release()
+            
+            env.negedge()
+                mp.io_snpBufReplay_s4_valid:expect(1)
+                mp.io_snpBufReplay_s4_bits_shouldReplay:expect(1)
+            env.expect_happen_until(10, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(2) end)
+            
+            env.dut_reset()
+        end
+    end
+}
+
 -- TODO: SnpOnce / Hazard
 -- TODO: Get not preferCache
  
@@ -9025,6 +9174,7 @@ verilua "mainTask" { function ()
     test_atomic_load_and_swap()
     test_SnpCleanShared()
     test_cmo_request()
+    test_snoop_stall_and_replay()
     end
 
    
