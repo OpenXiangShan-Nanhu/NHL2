@@ -344,6 +344,7 @@ local function build_channel(tl_prefix, chi_prefix)
         | txnID
         | dbID
         | srcID
+        | tgtID
         | pCrdType
     ]]):bundle {hier = cfg.top, is_decoupled = true, prefix = chi_prefix .. "rxrsp_", name = "chi_rxrsp"}
     
@@ -401,7 +402,17 @@ local function build_channel(tl_prefix, chi_prefix)
     end
 
     chi_rxrsp.resp_sep_data = function (this, txn_id, db_id, resp)
+        this:resp_sep_data_1(nil, nil, txn_id, db_id, resp)
+    end
+
+    chi_rxrsp.resp_sep_data_1 = function (this, src_id, tgt_id, txn_id, db_id, resp)
         env.negedge()
+            if src_id then
+                chi_rxrsp.bits.srcID:set(src_id)
+            end
+            if tgt_id then
+                chi_rxrsp.bits.tgtID:set(tgt_id)
+            end
             chi_rxrsp.bits.txnID:set(txn_id)
             chi_rxrsp.bits.opcode:set(OpcodeRSP.RespSepData)
             chi_rxrsp.bits.dbID:set(db_id)
@@ -414,6 +425,8 @@ local function build_channel(tl_prefix, chi_prefix)
     local chi_rxdat = ([[
         | valid
         | ready
+        | srcID
+        | tgtID
         | opcode
         | dataID
         | resp
@@ -456,15 +469,28 @@ local function build_channel(tl_prefix, chi_prefix)
             chi_rxdat.valid:set(0)
     end
 
-    chi_rxdat.data_sep_resp = function (this, txn_id, data_str_0, data_str_1, dbID, resp)
-        local dbID = dbID or 0
+    chi_rxdat.data_sep_resp = function (this, txn_id, data_str_0, data_str_1, db_id, resp)
+        this:data_sep_resp_1(nil, nil, nil, txn_id, data_str_0, data_str_1, db_id, resp)
+    end
+
+    chi_rxdat.data_sep_resp_1 = function (this, src_id, tgt_id, home_nid, txn_id, data_str_0, data_str_1, db_id, resp)
+        local db_id = db_id or 0
         local resp = resp or CHIResp.I
         env.negedge()
+            if src_id then
+                chi_rxdat.bits.srcID:set(src_id)
+            end
+            if tgt_id then
+                chi_rxdat.bits.tgtID:set(tgt_id)
+            end
+            if home_nid then
+                chi_rxdat.bits.homeNID:set(home_nid)
+            end
             chi_rxdat.bits.txnID:set(txn_id)
             chi_rxdat.bits.dataID:set(0)
             chi_rxdat.bits.opcode:set(OpcodeDAT.DataSepResp)
             chi_rxdat.bits.data:set_str(data_str_0)
-            chi_rxdat.bits.dbID:set(dbID)
+            chi_rxdat.bits.dbID:set(db_id)
             chi_rxdat.bits.resp:set(resp)
             chi_rxdat.valid:set(1)
         env.negedge()

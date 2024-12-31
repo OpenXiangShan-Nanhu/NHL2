@@ -7582,15 +7582,22 @@ local test_seperate_data_resp = env.register_test_case "test_seperate_data_resp"
             env.expect_happen_until(10, function() return chi_txreq:fire() and chi_txreq.bits.addr:is(to_address(0x01, 0x01)) and chi_txreq.bits.opcode:is(OpcodeREQ.ReadNotSharedDirty) and chi_txreq.bits.txnID:is(0) end)
 
             env.negedge(10)
+            local txn_id = 0
+            local db_id = math.random(0, 10)
+            local rsp_src_id = math.random(0, 10)
+            local dat_src_id = math.random(0, 10)
+            local dat_home_nid = rsp_src_id
             if data_before_resp then
-                chi_rxdat:data_sep_resp(0, "0xaabb", "0xccdd", 2, CHIResp.UC) -- DBID is set to 2. Howerver it is not expected to be used by L2Cache since the L2Cache does not require to send 
+                chi_rxdat:data_sep_resp_1(dat_src_id, nil, dat_home_nid, txn_id, "0xaabb", "0xccdd", db_id, CHIResp.UC) -- DBID is set to XX. Howerver it is not expected to be used by L2Cache since the L2Cache does not require to send 
                                                                             -- response to the component that sends this data packet. The data packet comes from either HN-F or SN-F.
-                chi_rxrsp:resp_sep_data(0, 1, 0) -- Resp is set to 0. Resp value should be 0 or the same as DataSepResp. DBID can be used by L2Cache to address the destination of CompAck.
+                env.negedge(math.random(0, 1000))
+                chi_rxrsp:resp_sep_data_1(rsp_src_id, nil, txn_id, db_id, (math.random(0, 1) == 1) and CHIResp.UC or 0) -- Resp is set to 0. Resp value should be 0 or the same as DataSepResp. DBID can be used by L2Cache to address the destination of CompAck.
             else
-                chi_rxrsp:resp_sep_data(0, 1, 0)
-                chi_rxdat:data_sep_resp(0, "0xaabb", "0xccdd", 2, CHIResp.UC)
+                chi_rxrsp:resp_sep_data_1(rsp_src_id, nil, txn_id, db_id, (math.random(0, 1) == 1) and CHIResp.UC or 0)
+                env.negedge(math.random(0, 1000))
+                chi_rxdat:data_sep_resp_1(dat_src_id, nil, dat_home_nid, txn_id, "0xaabb", "0xccdd", db_id, CHIResp.UC)
             end
-            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) and chi_txrsp.bits.txnID:is(1) end) -- CompAck is sent after L2Cache receive both DataSepResp and RespSepData.
+            env.expect_happen_until(10, function () return chi_txrsp:fire() and chi_txrsp.bits.opcode:is(OpcodeRSP.CompAck) and chi_txrsp.bits.txnID:is(db_id) and chi_txrsp.bits.tgtID:is(rsp_src_id) end) -- CompAck is sent after L2Cache receive both DataSepResp and RespSepData.
                                                                                                                                                                 -- TODO: It is permitted to send CompAck once RespSepData is arrived.
             env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xaabb") end)
             env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("0xccdd") end)
@@ -7602,8 +7609,10 @@ local test_seperate_data_resp = env.register_test_case "test_seperate_data_resp"
             env.negedge(100)
         end
 
+        for i = 1, 10 do
         test(true)
         test(false)
+    end
     end
 }
 

@@ -977,11 +977,12 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             when(opcode === DataSepResp) {
                 state.w_datasepresp := true.B
 
-                when(state.w_respsepdata) {
+                when(state.w_respsepdata || io.resps.rxrsp.fire && io.resps.rxrsp.bits.chiOpcode === RespSepData) {
                     // CompData == DataSepResp + RespSepData
                     state.w_compdat := true.B
                 }
 
+                datDBID         := rxdat.bits.dbID
                 gotRefilledData := true.B
             }
 
@@ -1036,10 +1037,10 @@ class MSHR()(implicit p: Parameters) extends L2Module {
             when(state.w_datasepresp) {
                 // CompData == DataSepResp + RespSepData
                 state.w_compdat := true.B
+            }
 
                 datDBID := rxrsp.bits.dbID // Reuse datDBID to save the DBID value from seperate data response
             }
-        }
 
         when(opcode === CompDBIDResp) {
             state.w_compdbid := true.B
