@@ -322,7 +322,7 @@ class Directory()(implicit p: Parameters) extends L2Module {
         when(io.dirWrite_s3.fire) {
             repl.miss // Update the replacer state for random replacement policy
         }
-        0.U
+        0.U(repl.nBits.W)
     } else {
         val replacerResult_s2 = replacerSRAM_opt.get.io.r(io.dirRead_s1.fire, io.dirRead_s1.bits.set).resp.data(0)(repl.nBits - 1, 0)
         val _replacerState_s3 = RegEnable(replacerResult_s2, 0.U(repl.nBits.W), reqValid_s2)
@@ -366,30 +366,6 @@ class Directory()(implicit p: Parameters) extends L2Module {
     val replacerUpdateOnHit_s3  = reqValid_s3 && !replReqValid_s3 && hit_s3 && updateReplacer_s3
     val replacerUpdateOnRepl_s3 = replReqValid_s3 && !replRetry_s3
     val replacerUpdate_s3       = (replacerUpdateOnHit_s3 || replacerUpdateOnRepl_s3) && !isRandomRepl.B
-    val replacerInitialState_s3 = if (replacementPolicy == "random" || replacementPolicy == "plru" || replacementPolicy == "lru") {
-        0.U
-    } else {
-        // TODO: Other replacement policy.(e.g. rrip)
-        assert(false, s"Unimplemented replacement policy: ${replacementPolicy}")
-        0.U
-    }
-    replacerSRAM_opt.foreach { sram =>
-        val replacerWrData = if (isPow2(repl.nBits)) repl.get_next_state(replacerState_s3, way_s3) else Cat(0.U(1.W), repl.get_next_state(replacerState_s3, way_s3))
-        sram.io.w(
-            valid = !io.resetFinish || replacerUpdate_s3,
-            data = Mux(io.resetFinish, replacerWrData, replacerInitialState_s3),
-            setIdx = Mux(io.resetFinish, reqSet_s3, resetIdx - 1.U),
-            waymask = 1.U
-        )
-
-        if (hasLowPowerInterface) {
-            sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
-            sram.io.pwctl.get.stop := false.B
-        }
-
-        assert(!(io.resetFinish && sram.io.r.req.valid && !sram.io.r.req.ready), "replacerSRAM is not ready for read!")
-        assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "replacerSRAM is not ready for write!")
-    }
 
     // -----------------------------------------------------------------------------------------
     // Stage 4(dir write)
@@ -434,6 +410,35 @@ class Directory()(implicit p: Parameters) extends L2Module {
         }
     }
 
+    val way_s4            = RegEnable(way_s3, 0.U(wayBits.W), replacerUpdate_s3)
+    val reqSet_s4         = RegEnable(reqSet_s3, 0.U(setBits.W), replacerUpdate_s3)
+    val replacerState_s4  = RegEnable(replacerState_s3, 0.U(repl.nBits.W), replacerUpdate_s3)
+    val replacerUpdate_s4 = RegNext(replacerUpdate_s3, false.B)
+    val replacerInitialState_s4 = if (replacementPolicy == "random" || replacementPolicy == "plru" || replacementPolicy == "lru") {
+        0.U
+    } else {
+        // TODO: Other replacement policy.(e.g. rrip)
+        assert(false, s"Unimplemented replacement policy: ${replacementPolicy}")
+        0.U
+    }
+    replacerSRAM_opt.foreach { sram =>
+        val replacerWrData = if (isPow2(repl.nBits)) repl.get_next_state(replacerState_s4, way_s4) else Cat(0.U(1.W), repl.get_next_state(replacerState_s4, way_s4))
+        sram.io.w(
+            valid = !io.resetFinish || replacerUpdate_s4,
+            data = Mux(io.resetFinish, replacerWrData, replacerInitialState_s4),
+            setIdx = Mux(io.resetFinish, reqSet_s4, resetIdx - 1.U),
+            waymask = 1.U
+        )
+
+        if (hasLowPowerInterface) {
+            sram.io.pwctl.get.ret  := io.sramRetentionOpt.get
+            sram.io.pwctl.get.stop := false.B
+        }
+
+        assert(!(io.resetFinish && sram.io.r.req.valid && !sram.io.r.req.ready), "replacerSRAM is not ready for read!")
+        assert(!(sram.io.w.req.valid && !sram.io.w.req.ready), "replacerSRAM is not ready for write!")
+    }
+
     /**
      * Cannot access directory on the following conditions:
      *  1. Directory reset is not finished.
@@ -441,7 +446,7 @@ class Directory()(implicit p: Parameters) extends L2Module {
      *  3. There is a directory write operation on metaSRAMs.
      *  4. ReplacerSRAM is updating.  
      */
-    io.dirRead_s1.ready := io.resetFinish && sramReadReady_s1 && !io.dirWrite_s3.fire && !replacerUpdate_s3
+    io.dirRead_s1.ready := io.resetFinish && sramReadReady_s1 && !dirWriteValid_s4 && !replacerUpdate_s4
 
     dontTouch(io)
 }
