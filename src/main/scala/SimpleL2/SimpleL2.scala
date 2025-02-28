@@ -14,6 +14,7 @@ import freechips.rocketchip.tile.MaxHartIdBits
 import xs.utils.perf.{DebugOptionsKey, DebugOptions}
 import xs.utils.tl.{TLNanhuBusField, TLNanhuBusKey, TLUserKey, TLUserParams}
 import xs.utils.FastArbiter
+import xs.utils.common.{AliasKey, VaddrKey, PrefetchKey}
 import SimpleL2.Configs._
 import SimpleL2.Bundles._
 import SimpleL2.chi._
@@ -110,7 +111,7 @@ class SimpleL2Cache(parentName: String = "L2_")(implicit p: Parameters) extends 
         beatBytes = 32,
         minLatency = 2,
         responseFields = Nil,
-        requestKeys = Seq(TLNanhuBusKey),
+        requestKeys = Seq(TLNanhuBusKey, AliasKey, VaddrKey, PrefetchKey),
         endSinkId = idsAll
     )
 
