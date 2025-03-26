@@ -528,22 +528,22 @@ local test_grantdata_mix_grant = env.register_test_case "test_grantdata_mix_gran
         verilua "appendTasks" {
             check_grantdata = function()
                 local function check_grantdata(data) 
-                    env.expect_happen_until(100, function (c)
-                        return tl_d:fire() and tl_d.bits.opcode:get() == TLOpcodeD.GrantData and tl_d.bits.data:get()[1] == data
-                    end)
+                    env.expect_happen_until(100, function() return tl_d:fire() and tl_d.bits.opcode:get() == TLOpcodeD.GrantData and tl_d.bits.data == v({data}) end)
                 end
                 
-                check_grantdata(0xdead)
-                check_grantdata(0xbeef)
+                env.posedge()
+                    check_grantdata(0xdead)
+                env.posedge()
+                    check_grantdata(0xbeef)
 
-                check_grantdata(0xdead2)
-                check_grantdata(0xbeef2)
+                env.posedge()
+                    check_grantdata(0xdead2)
+                env.posedge()
+                    check_grantdata(0xbeef2)
             end,
 
             check_grant = function ()
-                env.expect_happen_until(100, function (c)
-                    return tl_d:fire() and tl_d.bits.opcode:get() == TLOpcodeD.Grant
-                end)
+                env.expect_happen_until(100, function() return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.Grant) end)
             end
         }
 
@@ -574,9 +574,7 @@ local test_release_write = env.register_test_case "test_release_write" {
 
         verilua "appendTasks" {
             check_release_write = function()
-                env.expect_happen_until(100, function (c)
-                    return ds.io_dsWrite_s2_bits_data:get_str(HexStr) == "00000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000100"
-                end)
+                env.expect_happen_until(100, function (c) return ds.io_dsWrite_s2_bits_data:is_hex_str(utils.expand_hex_str("200", 256) .. utils.expand_hex_str("100", 256)) end)
             end
         }
 
@@ -1612,6 +1610,7 @@ local test_get_hit = env.register_test_case "test_get_hit" {
                 tl_d.bits.source:expect(source); expect.equal(tl_d.bits.data:get()[1], 0xdead)
             env.negedge()
                 expect.equal(tl_d.bits.data:get()[1], 0xbeef); tl_d:dump()
+            env.negedge(10)
         end
 
         -- normal hit
@@ -1726,12 +1725,11 @@ local test_get_hit = env.register_test_case "test_get_hit" {
                             env.expect_happen_until(100, function ()
                                 return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(("0b10"):number()) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.TC)
                             end)
-                            mp.io_dirWrite_s3_bits_meta_state:dump()
                         end
                     }
 
                     env.posedge()
-                        tl_d.valid:posedge(); env.negedge()
+                        env.expect_happen_until(10, function() return tl_d.valid:is(1) end)
                         tl_d.bits.source:expect(source); expect.equal(tl_d.bits.data:get()[1], 0xdead)
                     env.negedge()
                         expect.equal(tl_d.bits.data:get()[1], 0xbeef)
@@ -1930,6 +1928,11 @@ local test_miss_need_writebackfull = env.register_test_case "test_miss_need_writ
             write_dir(0x01, utils.uint_to_onehot(1), 0x02, MixedState.TD, clientsOH)
             write_dir(0x01, utils.uint_to_onehot(2), 0x03, MixedState.TD, clientsOH)
             write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TD, clientsOH)
+        env.negedge()
+            write_ds(0x01, utils.uint_to_onehot(0), "0")
+            write_ds(0x01, utils.uint_to_onehot(1), "0")
+            write_ds(0x01, utils.uint_to_onehot(2), "0")
+            write_ds(0x01, utils.uint_to_onehot(3), "0")
 
         local source = 4
         env.negedge()
@@ -7862,6 +7865,7 @@ local test_lowPower_shutdown_request = env.register_test_case "test_lowPower_shu
                 end
             }
             
+            env.posedge()
             env.expect_not_happen_until(2000, function () return low_power_req.valid:is(1) end)
             low_power_state:expect(PowerState.TRANSITION)
 
@@ -8490,7 +8494,7 @@ local test_atomic_load_and_swap = env.register_test_case "test_atomic_load_and_s
                 fork {
                     function ()
                         env.expect_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) end) -- and amoDataBufOpt.io_write_bits_data:is_hex_str(data_str)
-                        amoDataBufOpt.io_write_bits_data:expect_hex_str(data_str)
+                        amoDataBufOpt.io_write_bits_data:expect_dec_str(data_str)
                         env.posedge()
                             env.expect_not_happen_until(10, function () return amoDataBufOpt.io_write_valid:is(1) end)
                     end
@@ -9141,7 +9145,7 @@ verilua "mainTask" { function ()
     test_miss_need_writebackfull_and_probe("probeack")
     test_miss_need_writebackfull_and_probe("probeack_data")
     -- test_miss_need_writebackfull_and_probe("probeack_data_multi_clients") -- TODO:
-    
+
     test_snoop_shared()
     test_snoop_unique()
 
