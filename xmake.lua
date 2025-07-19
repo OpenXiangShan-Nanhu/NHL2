@@ -38,7 +38,13 @@ local function generate_test_targets(test_info_tbl)
         local sim = info.sim or "iverilog"
         target("Test" .. top_name)
             add_rules("verilua")
-            add_toolchains("@" .. sim)
+            if os.getenv("SIM") == "vcs" then
+                add_toolchains("@vcs")
+            elseif os.getenv("SIM") == "iverilog" then
+                add_toolchains("@iverilog")
+            else
+                add_toolchains("@" .. sim)
+            end
             
             add_files(files_table)
             add_files("src/main/lua/common/*.lua")
