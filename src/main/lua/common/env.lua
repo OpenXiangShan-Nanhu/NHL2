@@ -1,5 +1,4 @@
 local sim, dut = sim, dut
-local await_posedge = await_posedge
 local setmetatable = setmetatable
 local setfenv = setfenv
 local assert = assert
