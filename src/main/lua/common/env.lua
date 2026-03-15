@@ -16,9 +16,8 @@ end
 local function posedge(cycles, cycle_action_func)
     if cycles == nil then
         clock:posedge()
-    else
+    elseif cycles > 0 then
         local func = cycle_action_func or function (cycle) end
-        assert(cycles > 0)
         clock:posedge(cycles, func)
     end
 end
@@ -26,9 +25,8 @@ end
 local function negedge(cycles, cycle_action_func)
     if cycles == nil then
         clock:negedge()
-    else
+    elseif cycles > 0 then
         local func = cycle_action_func or function (cycle) end
-        assert(cycles > 0)
         clock:negedge(cycles, func)
     end
 end
