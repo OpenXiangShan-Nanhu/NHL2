@@ -44,8 +44,8 @@ local test_txstate_switch = env.register_test_case "test_txstate_switch" {
             txactiveack:expect(1)
         end)
 
-        -- txactivereq:set_force(0)
-        -- txactiveack:set_force(0)
+        -- txactivereq:force(0)
+        -- txactiveack:force(0)
 
         -- TODO: STOP
     end

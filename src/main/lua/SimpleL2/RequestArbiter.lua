@@ -145,7 +145,7 @@ local test_mshr_block_sink_req = env.register_test_case "test_mshr_block_sink_re
         env.dut_reset()
         set_ready()
 
-        reqArb.blockA_addrConflict:set_force(0)
+        reqArb.blockA_addrConflict:force(0)
 
         env.posedge()
 
@@ -178,7 +178,7 @@ local test_mshr_block_sink_req = env.register_test_case "test_mshr_block_sink_re
             taskSinkA_s1.valid:set(0)
 
         env.posedge(10)
-        reqArb.blockA_addrConflict:set_release()
+        reqArb.blockA_addrConflict:release()
         reset_ready()
     end
 }
@@ -246,7 +246,7 @@ local test_block_sinkA_for_same_addr = env.register_test_case "test_block_sinkA_
         env.dut_reset()
         set_ready()
 
-        reqArb.mayReadDS_s2:set_force(0)
+        reqArb.mayReadDS_s2:force(0)
 
         -- same address
         env.negedge()
@@ -308,7 +308,7 @@ local test_block_sinkA_for_same_addr = env.register_test_case "test_block_sinkA_
         
         env.posedge(10)
         reset_ready()
-        reqArb.mayReadDS_s2:set_release()
+        reqArb.mayReadDS_s2:release()
     end
 }
 
@@ -351,7 +351,7 @@ local test_noSpaceForReplay_block = env.register_test_case "test_noSpaceForRepla
         env.dut_reset()
         set_ready()
 
-        reqArb.blockA_s1:set_force(0)
+        reqArb.blockA_s1:force(0)
         dut.io_replayFreeCnt:set(3)
 
         env.negedge()
@@ -393,7 +393,7 @@ local test_noSpaceForReplay_block = env.register_test_case "test_noSpaceForRepla
             reqArb.mayReplayCnt:expect(1)
 
         env.posedge(10)
-        reqArb.blockA_s1:set_release()
+        reqArb.blockA_s1:release()
         reset_ready()
     end
 }

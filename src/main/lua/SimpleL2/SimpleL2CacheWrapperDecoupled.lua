@@ -127,18 +127,23 @@ local function write_dir(slice_id, set, wayOH, tag, state, clientsOH, alias)
     local alias = alias or ("0b00"):number()
     
     env.negedge()
-        dir:force_all()
-            dir.io_dirWrite_s3_valid:set(1)
-            dir.io_dirWrite_s3_bits_set:set(set)
-            dir.io_dirWrite_s3_bits_wayOH:set(wayOH)
-            dir.io_dirWrite_s3_bits_meta_tag:set(tag)
-            dir.io_dirWrite_s3_bits_meta_state:set(state)
-            dir.io_dirWrite_s3_bits_meta_aliasOpt:set(alias)
-            dir.io_dirWrite_s3_bits_meta_clientsOH:set(clientsOH)
-    
+        dir.io_dirWrite_s3_valid:force(1)
+        dir.io_dirWrite_s3_bits_set:force(set)
+        dir.io_dirWrite_s3_bits_wayOH:force(wayOH)
+        dir.io_dirWrite_s3_bits_meta_tag:force(tag)
+        dir.io_dirWrite_s3_bits_meta_state:force(state)
+        dir.io_dirWrite_s3_bits_meta_aliasOpt:force(alias)
+        dir.io_dirWrite_s3_bits_meta_clientsOH:force(clientsOH)
+
     env.negedge()
-        dir:release_all()
-    
+        dir.io_dirWrite_s3_valid:release()
+        dir.io_dirWrite_s3_bits_set:release()
+        dir.io_dirWrite_s3_bits_wayOH:release()
+        dir.io_dirWrite_s3_bits_meta_tag:release()
+        dir.io_dirWrite_s3_bits_meta_state:release()
+        dir.io_dirWrite_s3_bits_meta_aliasOpt:release()
+        dir.io_dirWrite_s3_bits_meta_clientsOH:release()
+
     env.posedge()
 end
 
@@ -151,21 +156,22 @@ local function write_ds(slice_id, set, wayOH, data_str)
     local ds = dut["u_SimpleL2CacheWrapperDecoupled.l2.slices_" .. slice_id .. ".ds"]
 
     env.negedge()
-        ds:force_all()
-            ds.io_dsWrite_s2_valid:set(1)
-            ds.io_dsWrite_s2_bits_set:set(set)
-            ds.io_dsWrite_s2_bits_data:set_str(data_str)
+        ds.io_dsWrite_s2_valid:force(1)
+        ds.io_dsWrite_s2_bits_set:force(set)
+        ds.io_dsWrite_s2_bits_data:force(tonumber(data_str))
 
     env.negedge()
-        ds:release_all()
-        ds:force_all()
-            ds.io_fromMainPipe_dsWrWayOH_s3_valid:set(1)
-            ds.io_fromMainPipe_dsWrWayOH_s3_bits:set(wayOH)
-    
+        ds.io_dsWrite_s2_valid:release()
+        ds.io_dsWrite_s2_bits_set:release()
+        ds.io_dsWrite_s2_bits_data:release()
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:force(1)
+        ds.io_fromMainPipe_dsWrWayOH_s3_bits:force(wayOH)
+
     env.negedge()
-        ds.io_fromMainPipe_dsWrWayOH_s3_valid:set(0)
-        ds:release_all()
-    
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:force(0)
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:release()
+        ds.io_fromMainPipe_dsWrWayOH_s3_bits:release()
+
     env.posedge()
 end
 
@@ -398,8 +404,8 @@ local test_prefetch_replay = env.register_test_case "test_prefetch_replay" {
         -- optParam.sinkaStallOnReqArb = false
         init_all()
 
-        mp_0.io_mshrAlloc_s3_valid:set_force(0)
-        mp_0.io_mshrAlloc_s3_ready:set_force(0)
+        mp_0.io_mshrAlloc_s3_valid:force(0)
+        mp_0.io_mshrAlloc_s3_ready:force(0)
 
         local addr = 0x1000
         env.negedge()
@@ -414,8 +420,8 @@ local test_prefetch_replay = env.register_test_case "test_prefetch_replay" {
             mp_0.io_reqBufReplay_s4_opt_valid:expect(1)
             mp_0.io_reqBufReplay_s4_opt_bits_isPrefetch:expect(1)
             reqBuf_0.replayMatchVec:expect(0x01)
-        mp_0.io_mshrAlloc_s3_valid:set_release()
-        mp_0.io_mshrAlloc_s3_ready:set_release()
+        mp_0.io_mshrAlloc_s3_valid:release()
+        mp_0.io_mshrAlloc_s3_ready:release()
 
         -- reissue the task
         env.expect_happen_until(10, function () return mp_0.valid_s3:is(1) and mp_0.task_s3_opcode:is(TLOpcodeA.Hint) and mp_0.task_s3_isMshrTask:is(0) and mp_0.task_s3_isReplayTask:is(1) end)

@@ -56,18 +56,18 @@ verilua "appendTasks" {
 
         
         env.negedge(5)
-            l2.auto_sink_nodes_in_1_b_bits_source:set_force(16)
-            l2.auto_sink_nodes_in_1_b_valid:set_force(1)
+            l2.auto_sink_nodes_in_1_b_bits_source:force(16)
+            l2.auto_sink_nodes_in_1_b_valid:force(1)
         env.negedge()
-            l2.auto_sink_nodes_in_1_b_bits_source:set_release()
-            l2.auto_sink_nodes_in_1_b_valid:set_release()
+            l2.auto_sink_nodes_in_1_b_bits_source:release()
+            l2.auto_sink_nodes_in_1_b_valid:release()
 
         env.negedge(5)
-            l2.auto_sink_nodes_in_1_b_bits_source:set_force(48)
-            l2.auto_sink_nodes_in_1_b_valid:set_force(1)
+            l2.auto_sink_nodes_in_1_b_bits_source:force(48)
+            l2.auto_sink_nodes_in_1_b_valid:force(1)
         env.negedge()
-            l2.auto_sink_nodes_in_1_b_bits_source:set_release()
-            l2.auto_sink_nodes_in_1_b_valid:set_release()
+            l2.auto_sink_nodes_in_1_b_bits_source:release()
+            l2.auto_sink_nodes_in_1_b_valid:release()
 
 
         env.negedge(5)

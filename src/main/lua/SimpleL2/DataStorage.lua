@@ -451,13 +451,13 @@ local test_basic_ecc_1bErr_read_write = env.register_test_case "test_basic_ecc_1
             dsRead_s3.bits.wayOH:set(1)
             dsRead_s3.bits.dest:set(SourceD)
             dut.io_fromMainPipe_mshrId_s3:set(4)
-            -- dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:set_force_str("0x01")
-            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:set_force_str("0x7000000000001dead")
+            -- dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:force_hex_str("01")
+            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:force_hex_str("7000000000001dead")
         env.negedge()
             dsRead_s3.valid:set(0)
 
         env.posedge(200)
-            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:set_release()
+            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:release()
     end
 }
 
@@ -513,14 +513,13 @@ local test_basic_ecc_2bErr_read_write = env.register_test_case "test_basic_ecc_2
             dsRead_s3.bits.wayOH:set(1)
             dsRead_s3.bits.dest:set(SourceD)
             dut.io_fromMainPipe_mshrId_s3:set(4)
-            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:set_force_str("0x11")
-            -- dut:force_all()
-            --     dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:set_str("0x7000000000001dead")
+            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:force_hex_str("11")
+            -- dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_0:force_hex_str("7000000000001dead")
         env.negedge()
             dsRead_s3.valid:set(0)
 
         env.posedge(200)
-            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:set_release()
+            dut.u_DataStorage.dataSRAMs_0_0.io_r_resp_data_0_1:release()
     end
 }
 

@@ -113,18 +113,23 @@ local function write_dir(set, wayOH, tag, state, clientsOH, alias)
     local alias = alias or ("0b00"):number()
     
     env.negedge()
-        dir:force_all()
-            dir.io_dirWrite_s3_valid:set(1)
-            dir.io_dirWrite_s3_bits_set:set(set)
-            dir.io_dirWrite_s3_bits_wayOH:set(wayOH)
-            dir.io_dirWrite_s3_bits_meta_tag:set(tag)
-            dir.io_dirWrite_s3_bits_meta_state:set(state)
-            dir.io_dirWrite_s3_bits_meta_aliasOpt:set(alias)
-            dir.io_dirWrite_s3_bits_meta_clientsOH:set(clientsOH)
-    
+        dir.io_dirWrite_s3_valid:force(1)
+        dir.io_dirWrite_s3_bits_set:force(set)
+        dir.io_dirWrite_s3_bits_wayOH:force(wayOH)
+        dir.io_dirWrite_s3_bits_meta_tag:force(tag)
+        dir.io_dirWrite_s3_bits_meta_state:force(state)
+        dir.io_dirWrite_s3_bits_meta_aliasOpt:force(alias)
+        dir.io_dirWrite_s3_bits_meta_clientsOH:force(clientsOH)
+
     env.negedge()
-        dir:release_all()
-    
+        dir.io_dirWrite_s3_valid:release()
+        dir.io_dirWrite_s3_bits_set:release()
+        dir.io_dirWrite_s3_bits_wayOH:release()
+        dir.io_dirWrite_s3_bits_meta_tag:release()
+        dir.io_dirWrite_s3_bits_meta_state:release()
+        dir.io_dirWrite_s3_bits_meta_aliasOpt:release()
+        dir.io_dirWrite_s3_bits_meta_clientsOH:release()
+
     env.posedge()
 end
 
@@ -134,37 +139,43 @@ local function write_ds(set, wayOH, data_str)
     assert(type(data_str) == "string")
 
     env.negedge()
-        ds:force_all()
-            ds.io_dsWrite_s2_valid:set(1)
-            ds.io_dsWrite_s2_bits_set:set(set)
-            ds.io_dsWrite_s2_bits_data:set_hex_str(data_str)
+        ds.io_dsWrite_s2_valid:force(1)
+        ds.io_dsWrite_s2_bits_set:force(set)
+        ds.io_dsWrite_s2_bits_data:force_hex_str(data_str)
 
     env.negedge()
-        ds:release_all()
-        ds:force_all()
-            ds.io_fromMainPipe_dsWrWayOH_s3_valid:set(1)
-            ds.io_fromMainPipe_dsWrWayOH_s3_bits:set(wayOH)
-    
+        ds.io_dsWrite_s2_valid:release()
+        ds.io_dsWrite_s2_bits_set:release()
+        ds.io_dsWrite_s2_bits_data:release()
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:force(1)
+        ds.io_fromMainPipe_dsWrWayOH_s3_bits:force(wayOH)
+
     env.negedge()
-        ds.io_fromMainPipe_dsWrWayOH_s3_valid:set(0)
-        ds:release_all()
-    
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:force(0)
+        ds.io_fromMainPipe_dsWrWayOH_s3_valid:release()
+        ds.io_fromMainPipe_dsWrWayOH_s3_bits:release()
+
     env.posedge()
 end
 
 local function write_sinkC_respDestMap(mshrId, set, tag, wayOH, isTempDS, isDS)
     env.negedge()
-        dut:force_all()
-        sinkC.io_respDest_s4_valid:set(1)
-        sinkC.io_respDest_s4_bits_mshrId:set(mshrId)
-        sinkC.io_respDest_s4_bits_set:set(set)
-        sinkC.io_respDest_s4_bits_tag:set(tag)
-        sinkC.io_respDest_s4_bits_wayOH:set(wayOH)
-        sinkC.io_respDest_s4_bits_isTempDS:set(isTempDS)
-        sinkC.io_respDest_s4_bits_isDS:set(isDS)
+        sinkC.io_respDest_s4_valid:force(1)
+        sinkC.io_respDest_s4_bits_mshrId:force(mshrId)
+        sinkC.io_respDest_s4_bits_set:force(set)
+        sinkC.io_respDest_s4_bits_tag:force(tag)
+        sinkC.io_respDest_s4_bits_wayOH:force(wayOH)
+        sinkC.io_respDest_s4_bits_isTempDS:force(isTempDS)
+        sinkC.io_respDest_s4_bits_isDS:force(isDS)
     env.negedge()
-        sinkC.io_respDest_s4_valid:set(0)
-        dut:release_all()
+        sinkC.io_respDest_s4_valid:force(0)
+        sinkC.io_respDest_s4_valid:release()
+        sinkC.io_respDest_s4_bits_mshrId:release()
+        sinkC.io_respDest_s4_bits_set:release()
+        sinkC.io_respDest_s4_bits_tag:release()
+        sinkC.io_respDest_s4_bits_wayOH:release()
+        sinkC.io_respDest_s4_bits_isTempDS:release()
+        sinkC.io_respDest_s4_bits_isDS:release()
 end
 
 local function to_address(set, tag)
@@ -192,7 +203,7 @@ local test_replay_valid = env.register_test_case "test_replay_valid" {
         resetFinish:posedge()
 
         slice.io_tl_d_ready:set(1)
-        ms.io_mshrAlloc_s3_ready:set_force(0)
+        ms.io_mshrAlloc_s3_ready:force(0)
 
         env.negedge()
             tl_a:acquire_block_1(0x10000, TLParam.NtoT, 8) -- set = 0x00, tag = 0x04
@@ -216,7 +227,7 @@ local test_replay_valid = env.register_test_case "test_replay_valid" {
         env.posedge()
             expect.equal(mp.valid_replay_s4:get(), 1) -- replay valid
 
-        ms.io_mshrAlloc_s3_ready:set_release()
+        ms.io_mshrAlloc_s3_ready:release()
         env.posedge(100)
     end
 }
@@ -623,7 +634,7 @@ local test_sinkA_hit = env.register_test_case "test_sinkA_hit" {
         env.dut_reset()
         resetFinish:posedge()
 
-        reqArb.blockA_s1:set_force(0)
+        reqArb.blockA_s1:force(0)
         dut.io_tl_d_ready = 1
 
         local sync = ("sync"):ehdl()
@@ -785,7 +796,7 @@ local test_sinkA_hit = env.register_test_case "test_sinkA_hit" {
             tl_a.valid:set(0)
         sync:send()
 
-        reqArb.blockA_s1:set_release()
+        reqArb.blockA_s1:release()
         env.posedge(100)
     end
 }
@@ -1021,21 +1032,23 @@ local test_sinkA_miss = env.register_test_case "test_sinkA_miss" {
 
         -- read back data from DataStorage
         env.negedge(math.random(1, 10))
-            dut:force_all()
-            ds.io_fromMainPipe_dsRead_s3_valid:set(1)
-            ds.io_fromMainPipe_dsRead_s3_bits_dest:set(SourceD)
-            ds.io_fromMainPipe_dsRead_s3_bits_set:set(0x10)
-            ds.io_fromMainPipe_dsRead_s3_bits_wayOH:set(0x01)
+            ds.io_fromMainPipe_dsRead_s3_valid:force(1)
+            ds.io_fromMainPipe_dsRead_s3_bits_dest:force(SourceD)
+            ds.io_fromMainPipe_dsRead_s3_bits_set:force(0x10)
+            ds.io_fromMainPipe_dsRead_s3_bits_wayOH:force(0x01)
         env.negedge() -- s4
-            dut:release_all()
+            ds.io_fromMainPipe_dsRead_s3_valid:release()
+            ds.io_fromMainPipe_dsRead_s3_bits_dest:release()
+            ds.io_fromMainPipe_dsRead_s3_bits_set:release()
+            ds.io_fromMainPipe_dsRead_s3_bits_wayOH:release()
         env.negedge() -- s5
         env.negedge() -- s6
         env.negedge() -- s7
             ds.io_toSourceD_dsResp_s7s8_valid:expect(1)
             expect.equal(ds.io_toSourceD_dsResp_s7s8_bits_data:get(), 0xdead)
-            sourceD.io_data_s7s8_valid:set_force(0)
+            sourceD.io_data_s7s8_valid:force(0)
         env.negedge(10)
-            sourceD.io_data_s7s8_valid:set_release()
+            sourceD.io_data_s7s8_valid:release()
 
         env.dut_reset()
         env.negedge(100)
@@ -1100,18 +1113,20 @@ local test_acquire_and_release = env.register_test_case "test_acquire_and_releas
             }
 
             env.negedge(math.random(1, 10))
-                dut:force_all()
-                ds.io_fromMainPipe_dsRead_s3_valid:set(1)
-                ds.io_fromMainPipe_dsRead_s3_bits_dest:set(TempDataStorage)
-                ds.io_fromMainPipe_dsRead_s3_bits_set:set(0x10)
-                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:set(0x01)
+                ds.io_fromMainPipe_dsRead_s3_valid:force(1)
+                ds.io_fromMainPipe_dsRead_s3_bits_dest:force(TempDataStorage)
+                ds.io_fromMainPipe_dsRead_s3_bits_set:force(0x10)
+                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:force(0x01)
             env.negedge()
-                dut:release_all()
-                sourceD.io_data_s7s8_valid:set_force(0)
-                ds.ren_s7:set_force(0)
+                ds.io_fromMainPipe_dsRead_s3_valid:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_dest:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_set:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:release()
+                sourceD.io_data_s7s8_valid:force(0)
+                ds.ren_s7:force(0)
             env.negedge(10)
-                sourceD.io_data_s7s8_valid:set_release()
-                ds.ren_s7:set_release()
+                sourceD.io_data_s7s8_valid:release()
+                ds.ren_s7:release()
 
             env.negedge(100)
         end
@@ -1148,18 +1163,20 @@ local test_acquire_and_release = env.register_test_case "test_acquire_and_releas
             }
 
             env.negedge(math.random(1, 10))
-                dut:force_all()
-                ds.io_fromMainPipe_dsRead_s3_valid:set(1)
-                ds.io_fromMainPipe_dsRead_s3_bits_dest:set(SourceD)
-                ds.io_fromMainPipe_dsRead_s3_bits_set:set(0x10)
-                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:set(0x01)
+                ds.io_fromMainPipe_dsRead_s3_valid:force(1)
+                ds.io_fromMainPipe_dsRead_s3_bits_dest:force(SourceD)
+                ds.io_fromMainPipe_dsRead_s3_bits_set:force(0x10)
+                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:force(0x01)
             env.negedge()
-                dut:release_all()
-                sourceD.io_data_s7s8_valid:set_force(0)
-                ds.ren_s6:set_force(0)
+                ds.io_fromMainPipe_dsRead_s3_valid:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_dest:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_set:release()
+                ds.io_fromMainPipe_dsRead_s3_bits_wayOH:release()
+                sourceD.io_data_s7s8_valid:force(0)
+                ds.ren_s6:force(0)
             env.negedge(10)
-                sourceD.io_data_s7s8_valid:set_release()
-                ds.ren_s6:set_release()
+                sourceD.io_data_s7s8_valid:release()
+                ds.ren_s6:release()
 
             env.posedge(200)
         end
@@ -3141,7 +3158,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             print "stage2 grant retry"
             
             tl_d.ready:set(0)
-            sourceD.io_task_s2_ready:set_force(0); sourceD.io_data_s2_ready:set_force(0); sourceD._skidBuffer_io_enq_ready:set_force(0); sourceD.skidBuffer.io_enq_ready_0:set_force(0)
+            sourceD.io_task_s2_ready:force(0); sourceD.io_data_s2_ready:force(0); sourceD._skidBuffer_io_enq_ready:force(0); sourceD.skidBuffer.io_enq_ready_0:force(0)
             chi_txreq.ready:set(1); chi_txrsp.ready:set(1)
 
             tl_a:acquire_block(to_address(0x10, 0x20), TLParam.NtoT, 3)
@@ -3156,7 +3173,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             end
 
             tl_d.ready:set(1)
-            sourceD.io_task_s2_ready:set_release(); sourceD.io_data_s2_ready:set_release(); sourceD._skidBuffer_io_enq_ready:set_release(); sourceD.skidBuffer.io_enq_ready_0:set_release()
+            sourceD.io_task_s2_ready:release(); sourceD.io_data_s2_ready:release(); sourceD._skidBuffer_io_enq_ready:release(); sourceD.skidBuffer.io_enq_ready_0:release()
             env.posedge()
             env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
             
@@ -3169,7 +3186,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             print "stage2 accessack retry"
             
             tl_d.ready:set(0)
-            sourceD.io_task_s2_ready:set_force(0); sourceD.io_data_s2_ready:set_force(0) 
+            sourceD.io_task_s2_ready:force(0); sourceD.io_data_s2_ready:force(0) 
             chi_txreq.ready:set(1); chi_txrsp.ready:set(1)
 
             tl_a:get(to_address(0x11, 0x20), 3)
@@ -3184,7 +3201,7 @@ local test_stage2_mshr_retry = env.register_test_case "test_stage2_mshr_retry" {
             end
 
             tl_d.ready:set(1)
-            sourceD.io_task_s2_ready:set_release(); sourceD.io_data_s2_ready:set_release()
+            sourceD.io_task_s2_ready:release(); sourceD.io_data_s2_ready:release()
             env.posedge()
             env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage2_valid:is(1) and mp.io_retryTasks_stage2_bits_refill_s2:is(1) and mp.io_retryTasks_stage2_bits_isRetry_s2:is(1) end)
             
@@ -3202,7 +3219,7 @@ local test_stage4_mshr_retry = env.register_test_case "test_stage4_mshr_retry" {
 
         do
             tl_d.ready:set(0)
-            txrsp.io_mpTask_s4_ready:set_force(0)
+            txrsp.io_mpTask_s4_ready:force(0)
             tl_b.ready:set(1); chi_txreq.ready:set(1); chi_txrsp.ready:set(1)
             
             env.negedge()
@@ -3219,7 +3236,7 @@ local test_stage4_mshr_retry = env.register_test_case "test_stage4_mshr_retry" {
                 env.posedge()
             end
 
-            txrsp.io_mpTask_s4_ready:set_release()
+            txrsp.io_mpTask_s4_ready:release()
             env.posedge()
             env.expect_not_happen_until(10, function () return mp.io_retryTasks_stage4_valid:is(1) and mp.io_retryTasks_stage4_bits_snpresp_s4:is(1) and mp.io_retryTasks_stage4_bits_isRetry_s4:is(1) end)
         end
@@ -3235,17 +3252,17 @@ local test_replresp_retry = env.register_test_case "test_replresp_retry" {
 
         local function set_mshr_wayOH()
             for i = 1, 4 do
-                mshrs[i + 5].io_status_valid:set_force(1)
-                mshrs[i + 5].io_status_wayOH:set_force(utils.uint_to_onehot(i - 1))
-                mshrs[i + 5].io_status_set:set_force(0x01)
+                mshrs[i + 5].io_status_valid:force(1)
+                mshrs[i + 5].io_status_wayOH:force(utils.uint_to_onehot(i - 1))
+                mshrs[i + 5].io_status_set:force(0x01)
             end
         end
 
         local function reset_mshr_wayOH()
             for i = 1, 4 do
-                mshrs[i + 5].io_status_valid:set_release()
-                mshrs[i + 5].io_status_wayOH:set_release()
-                mshrs[i + 5].io_status_set:set_release()
+                mshrs[i + 5].io_status_valid:release()
+                mshrs[i + 5].io_status_wayOH:release()
+                mshrs[i + 5].io_status_set:release()
             end
         end
 
@@ -3297,8 +3314,8 @@ local test_txrsp_mp_replay = env.register_test_case "test_txrsp_mp_replay" {
         resetFinish:posedge()
 
         chi_txrsp.ready:set(0)
-        mp.io_txrsp_s4_ready:set_force(0)
-        mp.io_txrspCnt:set_force(4)
+        mp.io_txrsp_s4_ready:force(0)
+        mp.io_txrspCnt:force(4)
 
         env.negedge()
         write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TC, 0x00)
@@ -3317,8 +3334,8 @@ local test_txrsp_mp_replay = env.register_test_case "test_txrsp_mp_replay" {
             print(env.cycles() .. " do replay_s4 " .. i)
         end
 
-        mp.io_txrsp_s4_ready:set_release()
-        mp.io_txrspCnt:set_release()
+        mp.io_txrsp_s4_ready:release()
+        mp.io_txrspCnt:release()
 
         env.expect_happen_until(10, function ()
             return chi_txrsp.valid:is(1) and chi_txrsp.bits.opcode:is(OpcodeRSP.SnpResp)
@@ -3337,7 +3354,7 @@ local test_sinkA_replay = env.register_test_case "test_sinkA_replay" {
 
         tl_d.ready:set(1)
 
-        mp.hasValidDataBuf_s7s8:set_force(0)
+        mp.hasValidDataBuf_s7s8:force(0)
 
         env.negedge()
             write_dir(0x11, utils.uint_to_onehot(0), 0x01, MixedState.TC, 0x00)
@@ -3363,7 +3380,7 @@ local test_sinkA_replay = env.register_test_case "test_sinkA_replay" {
             print(env.cycles() .. " do replay_s4 " .. i)
         end
 
-        mp.hasValidDataBuf_s7s8:set_release()
+        mp.hasValidDataBuf_s7s8:release()
 
         env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("dead") end)
         env.expect_happen_until(10, function () return tl_d:fire() and tl_d.bits.opcode:is(TLOpcodeD.GrantData) and tl_d.bits.data:is_hex_str("beef") end)
@@ -4719,8 +4736,8 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
 
             tl_b.ready:set(1); tl_d.ready:set(1); chi_txrsp.ready:set(1); chi_txreq.ready:set(1); chi_txdat.ready:set(1)
             
-            mp.io_sourceD_s7s8_ready:set_force(0)
-            sourceD.io_data_s7s8_ready:set_force(0)
+            mp.io_sourceD_s7s8_ready:force(0)
+            sourceD.io_data_s7s8_ready:force(0)
 
             env.negedge(20)
                 write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TTC, 0x01)
@@ -4729,7 +4746,7 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
                 write_dir(0x01, utils.uint_to_onehot(3), 0x04, MixedState.TC, 0x01)
             
             local source = 4
-            dir.finalWayOH_s3:set_force(utils.uint_to_onehot(3))
+            dir.finalWayOH_s3:force(utils.uint_to_onehot(3))
             env.negedge()
                 tl_a:acquire_block(to_address(0x01, 0x05), TLParam.NtoT, source)
 
@@ -4745,9 +4762,9 @@ local test_grant_block_probe = env.register_test_case "test_grant_block_probe" {
             }
             env.expect_happen_until(100, function () return sourceB.shouldBlock_mp:is(1) end)
 
-            dir.finalWayOH_s3:set_release()
-            mp.io_sourceD_s7s8_ready:set_release()
-            sourceD.io_data_s7s8_ready:set_release()
+            dir.finalWayOH_s3:release()
+            mp.io_sourceD_s7s8_ready:release()
+            sourceD.io_data_s7s8_ready:release()
         end
 
         env.dut_reset()
@@ -5190,8 +5207,8 @@ local test_grant_on_stage4 = env.register_test_case "test_grant_on_stage4" {
             -- replay
             env.negedge(20)
                 write_dir(0x01, utils.uint_to_onehot(0), 0x01, MixedState.TC, ("0b00"):number())
-                mp.io_nonDataRespCnt:set_force(3)
-                mp.io_sourceD_s4_valid:set_force(0)
+                mp.io_nonDataRespCnt:force(3)
+                mp.io_sourceD_s4_valid:force(0)
             env.negedge()
                 tl_a:acquire_perm(to_address(0x01, 0x01), TLParam.BtoT, 0)
             
@@ -5203,8 +5220,8 @@ local test_grant_on_stage4 = env.register_test_case "test_grant_on_stage4" {
             env.expect_happen_until(10, function() return mp.io_replayOpt_s4_valid:is(1) end)
 
             env.negedge(10)
-                mp.io_nonDataRespCnt:set_release()
-                mp.io_sourceD_s4_valid:set_release()
+                mp.io_nonDataRespCnt:release()
+                mp.io_sourceD_s4_valid:release()
             verilua "appendTasks" {
                 function ()
                     env.expect_happen_until(10, function() return mp.io_dirWrite_s3_valid:is(1) and mp.io_dirWrite_s3_bits_meta_state:is(MixedState.TTC) and mp.io_dirWrite_s3_bits_meta_clientsOH:is(0x01) end)
@@ -5503,8 +5520,8 @@ local test_nested_cancel_req = env.register_test_case "test_nested_cancel_req" {
                 end
             else
                 chi_txreq.ready:set(0)
-                mshrs[0].io_tasks_txreq_valid:set_force(0)
-                mshrs[0].io_tasks_txreq_ready:set_force(0)
+                mshrs[0].io_tasks_txreq_valid:force(0)
+                mshrs[0].io_tasks_txreq_ready:force(0)
 
                 if is_evict then
                     env.expect_not_happen_until(100, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.Evict) and chi_txreq.bits.allowRetry:is(1) end)
@@ -5524,8 +5541,8 @@ local test_nested_cancel_req = env.register_test_case "test_nested_cancel_req" {
                 mshrs[0].gotRetry:expect(1)
 
                 chi_txreq.ready:set(0)
-                mshrs[0].io_tasks_txreq_valid:set_force(0)
-                mshrs[0].io_tasks_txreq_ready:set_force(0)
+                mshrs[0].io_tasks_txreq_valid:force(0)
+                mshrs[0].io_tasks_txreq_ready:force(0)
             end
 
             local set = mshrs[0].req_set:get()
@@ -5539,16 +5556,20 @@ local test_nested_cancel_req = env.register_test_case "test_nested_cancel_req" {
                 mshrs[0].state_w_compdbid:expect(0)
             end
 
-            mp:force_all()
-                mshrs[0].mayCancelEvict:set(1)
+            mshrs[0].mayCancelEvict:force(1)
                 env.negedge()
-                    mp.io_mshrNested_s3_isMshr:set(1)
-                    mp.io_mshrNested_s3_mshrId:set(3)
-                    mp.io_mshrNested_s3_snoop_toN:set(1)
-                    mp.io_mshrNested_s3_set:set(set)
-                    mp.io_mshrNested_s3_tag:set(tag)
+                    mp.io_mshrNested_s3_isMshr:force(1)
+                    mp.io_mshrNested_s3_mshrId:force(3)
+                    mp.io_mshrNested_s3_snoop_toN:force(1)
+                    mp.io_mshrNested_s3_set:force(set)
+                    mp.io_mshrNested_s3_tag:force(tag)
                 env.negedge()
-            mp:release_all()
+            mshrs[0].mayCancelEvict:release()
+            mp.io_mshrNested_s3_isMshr:release()
+            mp.io_mshrNested_s3_mshrId:release()
+            mp.io_mshrNested_s3_snoop_toN:release()
+            mp.io_mshrNested_s3_set:release()
+            mp.io_mshrNested_s3_tag:release()
 
             if is_evict then
                 mshrs[0].state_s_evict:expect(1)
@@ -5559,8 +5580,8 @@ local test_nested_cancel_req = env.register_test_case "test_nested_cancel_req" {
             end
 
             chi_txreq.ready:set(1)
-            mshrs[0].io_tasks_txreq_valid:set_release()
-            mshrs[0].io_tasks_txreq_ready:set_release()
+            mshrs[0].io_tasks_txreq_valid:release()
+            mshrs[0].io_tasks_txreq_ready:release()
 
             if should_retry then
                 -- Return the P-Credit since the Evict operation has been canceled
@@ -5716,8 +5737,8 @@ local test_mshr_realloc = env.register_test_case "test_mshr_realloc" {
             env.expect_not_happen_until(10, function () return chi_txreq:fire() and chi_txreq.bits.opcode:is(OpcodeREQ.WriteBackFull) end)
             
             chi_txdat.ready:set(0)
-            mp.io_txdat_s2_ready:set_force(0)
-            txdat.io_task_s2_ready:set_force(0)
+            mp.io_txdat_s2_ready:force(0)
+            txdat.io_task_s2_ready:force(0)
             env.negedge()
                 chi_rxsnp.ready:expect(1)
                 chi_rxsnp.bits.txnID:set(3)
@@ -5771,8 +5792,8 @@ local test_mshr_realloc = env.register_test_case "test_mshr_realloc" {
             }
 
             chi_txdat.ready:set(1)
-            mp.io_txdat_s2_ready:set_release()
-            txdat.io_task_s2_ready:set_release()
+            mp.io_txdat_s2_ready:release()
+            txdat.io_task_s2_ready:release()
 
             env.negedge(10)
 
@@ -7035,15 +7056,15 @@ local test_fwd_snoop = env.register_test_case "test_fwd_snoop" {
             --             tl_a:acquire_block(addr, TLParam.NtoT, 4)
             --         if ret2src == 1 then env.negedge(3) --[[ Wait for writing TempDS finish caused by AcquireBlock ]] end
             --         env.negedge(5)
-            --         mshrs[0].io_tasks_mpTask_ready:set_force(0)
-            --         reqArb.io_taskMSHR_s0_ready:set_force(0)
-            --         reqArb.io_taskMSHR_s0_ready_0:set_force(0)
+            --         mshrs[0].io_tasks_mpTask_ready:force(0)
+            --         reqArb.io_taskMSHR_s0_ready:force(0)
+            --         reqArb.io_taskMSHR_s0_ready_0:force(0)
             --             tl_c:probeack(addr, TLParam.BtoN, 16)
             --         env.negedge(2)
             --             chi_rxsnp:send_fwd_request(addr, OpcodeSNP.SnpSharedFwd, src_id, txn_id, ret2src, fwd_nid, fwd_txn_id, do_not_go_to_sd)
-            --         mshrs[0].io_tasks_mpTask_ready:set_release()
-            --         reqArb.io_taskMSHR_s0_ready:set_release()
-            --         reqArb.io_taskMSHR_s0_ready_0:set_release()
+            --         mshrs[0].io_tasks_mpTask_ready:release()
+            --         reqArb.io_taskMSHR_s0_ready:release()
+            --         reqArb.io_taskMSHR_s0_ready_0:release()
                     
             --         verilua "appendTasks" {
             --             function ()
@@ -8444,7 +8465,7 @@ local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release"
         env.negedge()
             tl_c:probeack(to_address(0x01, 0x01), TLParam.TtoB, 0)
 
-        reqArb.blockC_s1:set_force(1)
+        reqArb.blockC_s1:force(1)
         env.negedge()
             tl_c.valid:set(1)
             tl_c.bits.opcode:set(TLOpcodeC.Release)
@@ -8454,7 +8475,7 @@ local test_s2s3_block_release = env.register_test_case "test_s2s3_block_release"
             env.posedge()
             tl_c.ready:expect(0)
         env.expect_happen_until(10, function () return reqArb.mshrTaskFull_s1:is(1) and reqArb.mshrTask_s1_updateDir:is(1) end)
-            reqArb.blockC_s1:set_release()
+            reqArb.blockC_s1:release()
         env.negedge()
             reqArb.valid_s2:expect(1)
             reqArb.addrConflict_forSinkC:expect(1)
@@ -9066,7 +9087,7 @@ local test_snoop_stall_and_replay = env.register_test_case "test_snoop_stall_and
             tl_a:acquire_block(address, TLParam.NtoT, 0)
             env.expect_happen_until(10, function () return chi_txreq:fire() end)
 
-            reqArb.snpReplay_s1:set_force(1)
+            reqArb.snpReplay_s1:force(1)
             env.negedge()
                 chi_rxsnp.bits.addr:set(bit.rshift(address, 3), true)
                 chi_rxsnp.bits.opcode:set(OpcodeSNP.SnpCleanInvalid)
@@ -9082,7 +9103,7 @@ local test_snoop_stall_and_replay = env.register_test_case "test_snoop_stall_and
                 end
             }
             env.expect_happen_until(20, function () return mp.valid_s3:is(1) and mp.task_s3_channel:is(2) and mp.task_s3_isAliasTask:is(1) end)
-            reqArb.snpReplay_s1:set_release()
+            reqArb.snpReplay_s1:release()
             
             env.negedge()
                 mp.io_snpBufReplay_s4_valid:expect(1)
@@ -9111,7 +9132,7 @@ verilua "mainTask" { function ()
     -- 
     if test_all then
     
-    mp.dirWen_s3:set_force(0)
+    mp.dirWen_s3:force(0)
         test_replay_valid()
         test_load_to_use()
         test_load_to_use_latency()
@@ -9121,7 +9142,7 @@ verilua "mainTask" { function ()
         test_grantdata_mix_grant()
         test_release_write()
         test_release_continuous_write()
-    mp.dirWen_s3:set_release()
+    mp.dirWen_s3:release()
 
 
     test_sinkA_hit()
