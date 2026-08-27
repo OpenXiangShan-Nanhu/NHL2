@@ -49,8 +49,8 @@ local function generate_test_targets(test_info_tbl)
             add_files(files_table)
             add_files("src/main/lua/common/*.lua")
 
-            set_values("cfg.top", top_name)
-            set_values("cfg.lua_main", lua_main)
+            set_values("verilua.top", top_name)
+            set_values("verilua.lua_main", lua_main)
     end
 end
 
