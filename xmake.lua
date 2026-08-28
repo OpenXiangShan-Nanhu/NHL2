@@ -38,6 +38,7 @@ local function generate_test_targets(test_info_tbl)
         local sim = info.sim or "iverilog"
         target("Test" .. top_name)
             add_rules("verilua")
+            set_values("verilua.version_required", ">=4.0.0")
             if os.getenv("SIM") == "vcs" then
                 add_toolchains("@vcs")
             elseif os.getenv("SIM") == "iverilog" then
